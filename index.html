@@ -470,10 +470,20 @@
                 analyzeBtn.textContent = "Analyzing...";
                 drawFuncBtn.disabled = true;
                 
-                // FIX: Reset state and clear old formula from canvas immediately
+                // Reset state and clear old formula from canvas immediately
                 isFormulaDrawn = false;
                 currentFormula = null;
                 redrawScene(); 
+
+                // FIX: Add pre-flight check for API Key
+                const apiKey = process.env.API_KEY;
+                if (!apiKey) {
+                    resultEl.innerHTML = `<span class="placeholder" style="color: #d9534f;">API Key not configured.</span>`;
+                    console.error("API Key is missing. Please configure the process.env.API_KEY environment variable.");
+                    analyzeBtn.disabled = false;
+                    analyzeBtn.textContent = "Analyze";
+                    return;
+                }
 
                 resultEl.innerHTML = `<span class="placeholder">AI is thinking...</span>`;
 
@@ -482,20 +492,25 @@
                     const pointsString = allPoints
                         .map(p => `(${p.x.toFixed(2)}, ${p.y.toFixed(2)})`)
                         .join(', ');
-
-                    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-                    const prompt = `You are a mathematical expert specializing in curve fitting. Analyze the provided (x, y) data points from a user's drawing. The x and y values exist within the range [${min}, ${max}]. Determine the most likely mathematical function f(x) that represents the drawing. The function should be as simple as possible. Consider linear, quadratic, cubic, and simple trigonometric or exponential functions. Provide ONLY the mathematical expression for the function. Do not include "f(x) =" or any explanations. Example response: 2*x + 1
-
-Data points: ${pointsString}`;
+                    
+                    const ai = new GoogleGenAI({ apiKey });
+                    
+                    // FIX: Refactor prompt to use systemInstruction for better reliability
+                    const systemInstruction = `You are a mathematical expert specializing in curve fitting. Your task is to analyze (x, y) data points from a user's drawing and determine the most likely mathematical function f(x) that represents it. The function should be as simple as possible. Consider linear, quadratic, cubic, and simple trigonometric or exponential functions. Respond with ONLY the mathematical expression for the function. Do not include "f(x) =" or any explanations. For example, if the function is y = 2x + 1, your response should be just "2*x + 1".`;
+                    const userPrompt = `The user's drawing exists within the x and y range of [${min}, ${max}]. Here are the data points: ${pointsString}`;
 
                     const response = await ai.models.generateContent({
                       model: 'gemini-2.5-flash',
-                      contents: prompt,
+                      contents: userPrompt,
+                      config: {
+                          systemInstruction: systemInstruction,
+                      }
                     });
 
                     const text = response.text;
-                    if (!text) {
-                        throw new Error("Received an empty response from the AI.");
+                    // FIX: More robust check for empty response
+                    if (!text || !text.trim()) {
+                        throw new Error("Received an empty or whitespace-only response from the AI.");
                     }
 
                     currentFormula = text.trim();
