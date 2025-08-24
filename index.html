@@ -138,12 +138,12 @@
             background-color: #94dcb0;
             cursor: not-allowed;
         }
-        #clearBtn {
+        #clearBtn, #toggleDrawingBtn {
             background-color: #f1f3f5;
             color: #333;
             border: 1px solid #ddd;
         }
-        #clearBtn:hover {
+        #clearBtn:hover, #toggleDrawingBtn:hover {
             background-color: #e2e6ea;
         }
         .force-controls-container {
@@ -221,7 +221,9 @@
             margin-right: 8px;
             vertical-align: middle;
         }
-
+        .hidden {
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -243,6 +245,7 @@
         <div class="controls">
             <button id="analyzeBtn">Analyze</button>
             <button id="drawFuncBtn" disabled>Draw Function</button>
+            <button id="toggleDrawingBtn" class="hidden">Hide Drawing</button>
             <button id="clearBtn">Clear</button>
         </div>
         <div class="force-controls-container">
@@ -272,6 +275,7 @@
             const analyzeBtn = document.getElementById('analyzeBtn');
             const clearBtn = document.getElementById('clearBtn');
             const drawFuncBtn = document.getElementById('drawFuncBtn');
+            const toggleDrawingBtn = document.getElementById('toggleDrawingBtn');
             const resultEl = document.getElementById('result');
             const minRangeInput = document.getElementById('minRange');
             const maxRangeInput = document.getElementById('maxRange');
@@ -289,7 +293,7 @@
             const functionInputContainer = document.querySelector('.function-input-container');
             const forceControlsContainer = document.querySelector('.force-controls-container');
 
-            if (!canvas || !ctx || !analyzeBtn || !clearBtn || !drawFuncBtn || !resultEl || !minRangeInput || !maxRangeInput || !updateRangeBtn || !functionInput || !container || !h1 || !rangeControls || !controls || !resultContainer || !inputPrompt || !functionInputContainer || !forceControlsContainer) {
+            if (!canvas || !ctx || !analyzeBtn || !clearBtn || !drawFuncBtn || !toggleDrawingBtn || !resultEl || !minRangeInput || !maxRangeInput || !updateRangeBtn || !functionInput || !container || !h1 || !rangeControls || !controls || !resultContainer || !inputPrompt || !functionInputContainer || !forceControlsContainer) {
                 console.error('Essential DOM elements not found.');
                 return;
             }
@@ -322,6 +326,7 @@
             let analyzedFormulas = [];
             let formulasToDraw = [];
             let forceGraphType = 'auto';
+            let isDrawingVisible = true;
             const plotColors = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8'];
 
             // --- Coordinate Conversion ---
@@ -364,6 +369,7 @@
                 }
             };
             const drawUserPath = () => {
+                 if (!isDrawingVisible) return;
                  ctx.strokeStyle = '#000000'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
                 lines.forEach(line => {
                     if (line.length < 2) return;
@@ -434,6 +440,9 @@
                 resultEl.innerHTML = `<span class="placeholder">Draw a function and click "Analyze"</span>`;
                 analyzeBtn.disabled = false; analyzeBtn.textContent = "Analyze"; drawFuncBtn.disabled = true;
                 forceGraphType = 'auto';
+                isDrawingVisible = true;
+                toggleDrawingBtn.classList.add('hidden');
+                toggleDrawingBtn.textContent = 'Hide Drawing';
                 forceBtns.forEach(btn => {
                     btn.classList.remove('active');
                     if (btn.dataset.type === 'auto') btn.classList.add('active');
@@ -447,7 +456,16 @@
                 if (event instanceof TouchEvent && event.touches.length > 0) return { x: event.touches[0].clientX - rect.left, y: event.touches[0].clientY - rect.top };
                 return { x: event.clientX - rect.left, y: event.clientY - rect.top };
             };
-            const startDrawing = (e) => { e.preventDefault(); isDrawing = true; lines.push([]); const { x, y } = getCoordinates(e); lines[lines.length - 1].push(canvasToGraph(x, y)); redrawScene(); };
+            const startDrawing = (e) => { 
+                e.preventDefault(); 
+                isDrawing = true; 
+                lines.push([]); 
+                const { x, y } = getCoordinates(e); 
+                lines[lines.length - 1].push(canvasToGraph(x, y)); 
+                isDrawingVisible = true; // Make sure drawing is visible when starting a new one
+                toggleDrawingBtn.classList.add('hidden');
+                redrawScene(); 
+            };
             const draw = (e) => { if (!isDrawing) return; e.preventDefault(); const { x, y } = getCoordinates(e); lines[lines.length - 1].push(canvasToGraph(x, y)); redrawScene(); };
             const stopDrawing = () => { isDrawing = false; };
 
@@ -596,6 +614,7 @@
 
                 analyzeBtn.disabled = true; analyzeBtn.textContent = "Analyzing...";
                 drawFuncBtn.disabled = true; analyzedFormulas = []; formulasToDraw = [];
+                toggleDrawingBtn.classList.add('hidden');
                 redrawScene(); 
                 
                 setTimeout(() => {
@@ -723,8 +742,15 @@
                     formulasToDraw = analyzedFormulas;
                 }
                 redrawScene();
+                toggleDrawingBtn.classList.remove('hidden');
             });
             
+            toggleDrawingBtn.addEventListener('click', () => {
+                isDrawingVisible = !isDrawingVisible;
+                toggleDrawingBtn.textContent = isDrawingVisible ? 'Hide Drawing' : 'Show Drawing';
+                redrawScene();
+            });
+
             forceBtns.forEach(btn => {
                 btn.addEventListener('click', () => {
                     forceBtns.forEach(b => b.classList.remove('active'));
