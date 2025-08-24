@@ -58,6 +58,33 @@
         #updateRangeBtn:hover {
             background-color: #5a6268;
         }
+        .input-prompt {
+            color: #666;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+            text-align: center;
+        }
+        .function-input-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            width: 90%;
+            max-width: 380px;
+        }
+        .function-input-container label {
+            font-family: 'SF Mono', 'Courier New', monospace;
+            font-size: 1.1rem;
+            color: #333;
+        }
+        .function-input-container input {
+            flex-grow: 1;
+            padding: 0.5rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 1rem;
+            font-family: 'SF Mono', 'Courier New', monospace;
+        }
         canvas {
             background-color: #ffffff;
             border: 2px solid #cccccc;
@@ -166,6 +193,11 @@
             <input type="number" id="maxRange" value="8" step="1">
         </div>
         <button id="updateRangeBtn">Update Range</button>
+        <p class="input-prompt">Either input a function or draw a graph to analyze</p>
+        <div class="function-input-container">
+            <label for="functionInput">f(x) =</label>
+            <input type="text" id="functionInput" placeholder="e.g., sin(x) * 5">
+        </div>
         <canvas id="drawCanvas"></canvas>
         <div class="controls">
             <button id="analyzeBtn">Analyze</button>
@@ -192,6 +224,7 @@
             const minRangeInput = document.getElementById('minRange');
             const maxRangeInput = document.getElementById('maxRange');
             const updateRangeBtn = document.getElementById('updateRangeBtn');
+            const functionInput = document.getElementById('functionInput');
             const ctx = canvas.getContext('2d');
             
             // Additional elements for sizing
@@ -200,8 +233,10 @@
             const rangeControls = document.querySelector('.range-controls');
             const controls = document.querySelector('.controls');
             const resultContainer = document.getElementById('result-container');
+            const inputPrompt = document.querySelector('.input-prompt');
+            const functionInputContainer = document.querySelector('.function-input-container');
 
-            if (!canvas || !ctx || !analyzeBtn || !clearBtn || !drawFuncBtn || !resultEl || !minRangeInput || !maxRangeInput || !updateRangeBtn || !container || !h1 || !rangeControls || !controls || !resultContainer) {
+            if (!canvas || !ctx || !analyzeBtn || !clearBtn || !drawFuncBtn || !resultEl || !minRangeInput || !maxRangeInput || !updateRangeBtn || !functionInput || !container || !h1 || !rangeControls || !controls || !resultContainer || !inputPrompt || !functionInputContainer) {
                 console.error('Essential DOM elements not found.');
                 return;
             }
@@ -214,6 +249,8 @@
                 remToPx(1) + // h1 margin-bottom
                 remToPx(0.5) + // range-controls margin-bottom
                 remToPx(1) + // updateRangeBtn margin-bottom
+                remToPx(0.5) + // input-prompt margin-bottom
+                remToPx(1) + // function-input-container margin-bottom
                 remToPx(1) + // controls margin-top
                 remToPx(1) + // result-container margin-top
                 remToPx(1);  // container padding-bottom
@@ -222,6 +259,8 @@
                 h1.offsetHeight + 
                 rangeControls.offsetHeight + 
                 updateRangeBtn.offsetHeight + 
+                inputPrompt.offsetHeight +
+                functionInputContainer.offsetHeight +
                 controls.offsetHeight + 
                 resultContainer.offsetHeight;
 
@@ -399,6 +438,7 @@
                 lines = [];
                 analyzedFormula = null;
                 formulaToDraw = null;
+                functionInput.value = '';
                 minRangeInput.value = '-8';
                 maxRangeInput.value = '8';
                 resultEl.innerHTML = `<span class="placeholder">Draw a function and click "Analyze"</span>`;
@@ -457,7 +497,6 @@
                 analyzeBtn.textContent = "Analyzing...";
                 drawFuncBtn.disabled = true;
                 
-                // Reset state and clear old formula from canvas immediately
                 analyzedFormula = null;
                 formulaToDraw = null;
                 redrawScene(); 
@@ -498,6 +537,7 @@
                     }
 
                     analyzedFormula = text.trim();
+                    functionInput.value = analyzedFormula;
                     resultEl.innerHTML = `f(x) &approx; <strong>${analyzedFormula}</strong>`;
                     drawFuncBtn.disabled = false;
 
@@ -521,11 +561,23 @@
 
             clearBtn.addEventListener('click', reset);
             analyzeBtn.addEventListener('click', analyzeGraph);
+            
             drawFuncBtn.addEventListener('click', () => {
-                if (!analyzedFormula) return;
-                formulaToDraw = analyzedFormula;
+                const formula = functionInput.value.trim();
+                if (!formula) return;
+                formulaToDraw = formula;
                 redrawScene();
             });
+
+            functionInput.addEventListener('input', () => {
+                drawFuncBtn.disabled = functionInput.value.trim() === '';
+                // If user types, the drawn formula might become outdated. Clear it.
+                if (formulaToDraw) {
+                    formulaToDraw = null;
+                    redrawScene();
+                }
+            });
+
             updateRangeBtn.addEventListener('click', redrawScene);
 
             // Initial Draw
@@ -534,3 +586,4 @@
     </script>
 </body>
 </html>
+
