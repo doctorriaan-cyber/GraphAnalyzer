@@ -207,7 +207,6 @@
             }
 
             // --- Canvas Size Calculation ---
-            // This logic dynamically calculates the largest possible square canvas that fits on the screen.
             const remToPx = (rem) => rem * parseFloat(getComputedStyle(document.documentElement).fontSize);
             
             const verticalSpacing = 
@@ -243,8 +242,8 @@
             // App State
             let isDrawing = false;
             let lines = []; // Array of arrays to hold disconnected lines
-            let currentFormula = null;
-            let isFormulaDrawn = false;
+            let analyzedFormula = null; // Stores formula from AI analysis
+            let formulaToDraw = null; // Stores formula to be actively drawn
 
             // --- Coordinate Conversion ---
             const getRange = () => {
@@ -280,22 +279,18 @@
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
 
-                // Get origin pixel position
                 const origin = graphToCanvas(0, 0);
 
-                // Draw Y-axis
                 ctx.beginPath();
                 ctx.moveTo(origin.x, 0);
                 ctx.lineTo(origin.x, baseSize);
                 ctx.stroke();
 
-                // Draw X-axis
                 ctx.beginPath();
                 ctx.moveTo(0, origin.y);
                 ctx.lineTo(baseSize, origin.y);
                 ctx.stroke();
 
-                // Draw ticks and labels
                 const tickCount = 5;
                 const range = max - min;
                 const step = range / tickCount;
@@ -303,13 +298,9 @@
                 for (let i = 0; i <= tickCount; i++) {
                     const val = min + i * step;
                     const tickVal = parseFloat(val.toFixed(1));
-
-                    // X-axis ticks
                     const xTickPos = graphToCanvas(tickVal, 0);
                     ctx.fillText(tickVal.toString(), xTickPos.x, origin.y + 15);
-
-                    // Y-axis ticks
-                    if (tickVal !== 0) { // Avoid double-drawing origin
+                    if (tickVal !== 0) {
                         const yTickPos = graphToCanvas(0, tickVal);
                         ctx.textAlign = 'right';
                         ctx.fillText(tickVal.toString(), origin.x - 8, yTickPos.y);
@@ -337,10 +328,10 @@
                 });
             };
 
-            const drawFormulaOnCanvas = () => {
-                if (!currentFormula) return;
+            const drawFormulaOnCanvas = (formula) => {
+                if (!formula) return;
                 
-                let sanitizedFormula = currentFormula.trim()
+                let sanitizedFormula = formula.trim()
                     .replace(/^f\(x\)\s*=\s*/i, '')
                     .replace(/\^/g, '**');
 
@@ -369,21 +360,17 @@
                     for (let i = 0; i <= steps; i++) {
                         const gx = min + (i / steps) * (max - min);
                         let gy;
-
                         try {
                              gy = func(gx);
                         } catch(e) {
                             firstPoint = true;
                             continue;
                         }
-
                         if (typeof gy !== 'number' || !isFinite(gy)) {
                             firstPoint = true;
                             continue;
                         }
-
                         const {x, y} = graphToCanvas(gx, gy);
-                        
                         if (firstPoint) {
                             ctx.moveTo(x, y);
                             firstPoint = false;
@@ -403,15 +390,15 @@
                 ctx.clearRect(0, 0, baseSize, baseSize);
                 drawAxes();
                 drawUserPath();
-                if (isFormulaDrawn) {
-                    drawFormulaOnCanvas();
+                if (formulaToDraw) {
+                    drawFormulaOnCanvas(formulaToDraw);
                 }
             };
 
             const reset = () => {
                 lines = [];
-                currentFormula = null;
-                isFormulaDrawn = false;
+                analyzedFormula = null;
+                formulaToDraw = null;
                 minRangeInput.value = '-8';
                 maxRangeInput.value = '8';
                 resultEl.innerHTML = `<span class="placeholder">Draw a function and click "Analyze"</span>`;
@@ -471,11 +458,10 @@
                 drawFuncBtn.disabled = true;
                 
                 // Reset state and clear old formula from canvas immediately
-                isFormulaDrawn = false;
-                currentFormula = null;
+                analyzedFormula = null;
+                formulaToDraw = null;
                 redrawScene(); 
 
-                // FIX: Add pre-flight check for API Key
                 const apiKey = process.env.API_KEY;
                 if (!apiKey) {
                     resultEl.innerHTML = `<span class="placeholder" style="color: #d9534f;">API Key not configured.</span>`;
@@ -495,7 +481,6 @@
                     
                     const ai = new GoogleGenAI({ apiKey });
                     
-                    // FIX: Refactor prompt to use systemInstruction for better reliability
                     const systemInstruction = `You are a mathematical expert specializing in curve fitting. Your task is to analyze (x, y) data points from a user's drawing and determine the most likely mathematical function f(x) that represents it. The function should be as simple as possible. Consider linear, quadratic, cubic, and simple trigonometric or exponential functions. Respond with ONLY the mathematical expression for the function. Do not include "f(x) =" or any explanations. For example, if the function is y = 2x + 1, your response should be just "2*x + 1".`;
                     const userPrompt = `The user's drawing exists within the x and y range of [${min}, ${max}]. Here are the data points: ${pointsString}`;
 
@@ -508,13 +493,12 @@
                     });
 
                     const text = response.text;
-                    // FIX: More robust check for empty response
                     if (!text || !text.trim()) {
                         throw new Error("Received an empty or whitespace-only response from the AI.");
                     }
 
-                    currentFormula = text.trim();
-                    resultEl.innerHTML = `f(x) &approx; <strong>${currentFormula}</strong>`;
+                    analyzedFormula = text.trim();
+                    resultEl.innerHTML = `f(x) &approx; <strong>${analyzedFormula}</strong>`;
                     drawFuncBtn.disabled = false;
 
                 } catch (error) {
@@ -538,8 +522,8 @@
             clearBtn.addEventListener('click', reset);
             analyzeBtn.addEventListener('click', analyzeGraph);
             drawFuncBtn.addEventListener('click', () => {
-                if (!currentFormula) return; // Don't draw if there's no formula
-                isFormulaDrawn = true;
+                if (!analyzedFormula) return;
+                formulaToDraw = analyzedFormula;
                 redrawScene();
             });
             updateRangeBtn.addEventListener('click', redrawScene);
