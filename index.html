@@ -10,13 +10,8 @@
             margin: 0;
             padding: 0;
             width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
             background-color: #f0f2f5;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            overflow: hidden;
         }
         .container {
             display: flex;
@@ -25,8 +20,6 @@
             width: 100%;
             padding: 1rem;
             box-sizing: border-box;
-            max-height: 100vh;
-            overflow-y: auto;
         }
         h1 {
             color: #333;
@@ -517,34 +510,6 @@
                 }
                 return formulaString ? formulaInfo : null;
             };
-
-            const segmentDrawing = (lines) => {
-                const segments = [];
-                const CUSP_THRESHOLD = Math.PI / 1.8; // 100 degrees
-                lines.forEach(line => {
-                    if (line.length < 3) {
-                        segments.push(line);
-                        return;
-                    }
-                    let currentSegment = [line[0]];
-                    for (let i = 1; i < line.length - 1; i++) {
-                        currentSegment.push(line[i]);
-                        const p1 = line[i-1], p2 = line[i], p3 = line[i+1];
-                        const angle1 = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-                        const angle2 = Math.atan2(p3.y - p2.y, p3.x - p2.x);
-                        let angleChange = Math.abs(angle1 - angle2);
-                        if (angleChange > Math.PI) angleChange = 2 * Math.PI - angleChange;
-
-                        if (angleChange > CUSP_THRESHOLD) {
-                            segments.push(currentSegment);
-                            currentSegment = [line[i]];
-                        }
-                    }
-                    currentSegment.push(line[line.length - 1]);
-                    segments.push(currentSegment);
-                });
-                return segments.filter(s => s.length > 5);
-            };
             
             const findBestFitForSegment = (segmentPoints, isClosedLoop) => {
                 const xMin = Math.min(...segmentPoints.map(p => p.x));
@@ -602,8 +567,8 @@
             };
 
             const analyzeGraph = () => {
-                const allPoints = lines.flat();
-                if (allPoints.length < 10) {
+                const significantLines = lines.filter(line => line.length >= 10);
+                if (significantLines.length === 0) {
                     resultEl.innerHTML = `<span class="placeholder" style="color: #d9534f;">Please draw a more complete graph.</span>`;
                     return;
                 }
@@ -615,55 +580,23 @@
                 
                 setTimeout(() => {
                     try {
-                        const startPointGlobal = allPoints[0], endPointGlobal = allPoints[allPoints.length - 1];
-                        const isClosedLoopGlobal = lines.length === 1 && Math.hypot(startPointGlobal.x - endPointGlobal.x, startPointGlobal.y - endPointGlobal.y) < (getRange().max - getRange().min) * 0.2;
-                        
-                        if (forceGraphType !== 'auto') {
-                             const segments = (forceGraphType === 'circle' || forceGraphType === 'ellipse') ? [allPoints] : segmentDrawing(lines);
-                             const topSegments = segments.sort((a, b) => b.length - a.length).slice(0, 5);
-                             topSegments.forEach(segment => {
-                                 const bestFit = findBestFitForSegment(segment, isClosedLoopGlobal);
-                                 if (bestFit) {
-                                     const formulaInfo = formatFormula(bestFit);
-                                     if(formulaInfo) {
-                                        formulaInfo.domain = bestFit.domain;
-                                        analyzedFormulas.push(formulaInfo);
-                                     }
-                                 }
-                             });
-                        } else {
-                            const singleBestFit = findBestFitForSegment(allPoints, isClosedLoopGlobal);
-                            const HIGH_FIT_THRESHOLD = 0.95;
+                        significantLines.forEach(line => {
+                            const startPoint = line[0];
+                            const endPoint = line[line.length - 1];
+                            const isClosedLoop = Math.hypot(startPoint.x - endPoint.x, startPoint.y - endPoint.y) < (getRange().max - getRange().min) * 0.2;
 
-                            if (singleBestFit && singleBestFit.rSquared > HIGH_FIT_THRESHOLD) {
-                                const formulaInfo = formatFormula(singleBestFit);
-                                if (formulaInfo) {
-                                    formulaInfo.domain = singleBestFit.domain;
-                                    analyzedFormulas.push(formulaInfo);
-                                }
-                            } else {
-                                const segments = segmentDrawing(lines);
-                                const topSegments = segments.sort((a, b) => b.length - a.length).slice(0, 5);
-                                topSegments.forEach(segment => {
-                                    const bestFit = findBestFitForSegment(segment, isClosedLoopGlobal);
-                                    if (bestFit) {
-                                        const formulaInfo = formatFormula(bestFit);
-                                        if(formulaInfo) {
-                                            formulaInfo.domain = bestFit.domain;
-                                            analyzedFormulas.push(formulaInfo);
-                                        }
-                                    }
-                                });
-                                
-                                if (analyzedFormulas.length === 0 && singleBestFit) {
-                                    const formulaInfo = formatFormula(singleBestFit);
-                                    if (formulaInfo) {
-                                        formulaInfo.domain = singleBestFit.domain;
-                                        analyzedFormulas.push(formulaInfo);
-                                    }
+                            // findBestFitForSegment handles finding the best fit among various types
+                            // for the given set of points (in this case, a single drawing 'line').
+                            const bestFit = findBestFitForSegment(line, isClosedLoop);
+
+                            if (bestFit) {
+                                const formulaInfo = formatFormula(bestFit);
+                                if(formulaInfo) {
+                                   formulaInfo.domain = bestFit.domain;
+                                   analyzedFormulas.push(formulaInfo);
                                 }
                             }
-                        }
+                        });
 
                         if (analyzedFormulas.length === 0) throw new Error("Could not find any high-quality function fits.");
 
@@ -676,11 +609,8 @@
                         resultHTML += '</ol>';
                         resultEl.innerHTML = resultHTML;
                         
-                        if (analyzedFormulas.length === 1 && ['polynomial', 'trigonometric', 'tangent', 'reciprocal', 'exponential'].includes(analyzedFormulas[0].type)) {
-                           functionInput.value = analyzedFormulas[0].formula;
-                        } else {
-                           functionInput.value = '';
-                        }
+                        const firstFunc = analyzedFormulas.find(f => ['polynomial', 'trigonometric', 'tangent', 'reciprocal', 'exponential'].includes(f.type));
+                        functionInput.value = firstFunc ? firstFunc.formula : '';
                         
                         drawFuncBtn.disabled = false;
 
@@ -723,20 +653,26 @@
 
             drawFuncBtn.addEventListener('click', () => {
                 formulasToDraw = [];
-                const formula = functionInput.value.trim();
-                if (formula.length > 0) {
-                     const func = sanitizeAndCreateFunction(formula);
-                     if (func) {
-                         const newRange = calculateOptimalRange(func, getRange());
-                         if (newRange) {
-                            let { min, max } = newRange; const limit = 30; min = Math.max(-limit, min); max = Math.min(limit, max);
-                            minRangeInput.value = min.toFixed(2); maxRangeInput.value = max.toFixed(2);
-                         }
-                         formulasToDraw = [{ type: 'standard', formula: formula }];
-                     }
-                } else if (analyzedFormulas.length > 0) {
+                
+                // Prioritize analyzed formulas. They are cleared if user types in the input.
+                if (analyzedFormulas.length > 0) {
                     formulasToDraw = analyzedFormulas;
+                } else {
+                    const formula = functionInput.value.trim();
+                    if (formula.length > 0) {
+                        const func = sanitizeAndCreateFunction(formula);
+                        if (func) {
+                            // Only calculate optimal range for a single, user-inputted function.
+                            const newRange = calculateOptimalRange(func, getRange());
+                            if (newRange) {
+                                let { min, max } = newRange; const limit = 30; min = Math.max(-limit, min); max = Math.min(limit, max);
+                                minRangeInput.value = min.toFixed(2); maxRangeInput.value = max.toFixed(2);
+                            }
+                            formulasToDraw = [{ type: 'standard', formula: formula }];
+                        }
+                    }
                 }
+                
                 redrawScene();
                 toggleDrawingBtn.classList.remove('hidden');
             });
