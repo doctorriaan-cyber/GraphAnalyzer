@@ -88,6 +88,7 @@
             font-family: 'SF Mono', 'Courier New', monospace;
         }
         canvas {
+            width: 100%; /* Fill the container width */
             background-color: #ffffff;
             border: 2px solid #cccccc;
             border-radius: 8px;
@@ -283,42 +284,11 @@
             const functionInput = document.getElementById('functionInput');
             const forceBtns = document.querySelectorAll('.force-btn');
             const ctx = canvas.getContext('2d');
-            
-            const container = document.querySelector('.container');
-            const h1 = document.querySelector('h1');
-            const rangeControls = document.querySelector('.range-controls');
-            const controls = document.querySelector('.controls');
-            const resultContainer = document.getElementById('result-container');
-            const inputPrompt = document.querySelector('.input-prompt');
-            const functionInputContainer = document.querySelector('.function-input-container');
-            const forceControlsContainer = document.querySelector('.force-controls-container');
 
-            if (!canvas || !ctx || !analyzeBtn || !clearBtn || !drawFuncBtn || !toggleDrawingBtn || !resultEl || !minRangeInput || !maxRangeInput || !updateRangeBtn || !functionInput || !container || !h1 || !rangeControls || !controls || !resultContainer || !inputPrompt || !functionInputContainer || !forceControlsContainer) {
+            if (!canvas || !ctx || !analyzeBtn || !clearBtn || !drawFuncBtn || !toggleDrawingBtn || !resultEl || !minRangeInput || !maxRangeInput || !updateRangeBtn || !functionInput) {
                 console.error('Essential DOM elements not found.');
                 return;
             }
-            
-            const remToPx = (rem) => rem * parseFloat(getComputedStyle(document.documentElement).fontSize);
-            
-            const calculateCanvasSize = () => {
-                 const verticalSpacing = 
-                    remToPx(1) + remToPx(1) + remToPx(0.5) + remToPx(1) + remToPx(0.5) + 
-                    remToPx(1) + remToPx(1.5) + remToPx(1) + remToPx(1); 
-                const otherElementsHeight = h1.offsetHeight + rangeControls.offsetHeight + updateRangeBtn.offsetHeight + inputPrompt.offsetHeight +
-                    functionInputContainer.offsetHeight + controls.offsetHeight + forceControlsContainer.offsetHeight + resultContainer.offsetHeight;
-                const totalNonCanvasHeight = otherElementsHeight + verticalSpacing;
-                const availableHeight = window.innerHeight - totalNonCanvasHeight;
-                const availableWidth = container.clientWidth;
-                return Math.max(150, Math.floor(Math.min(availableWidth, availableHeight)));
-            }
-
-            const baseSize = calculateCanvasSize();
-            const dpr = window.devicePixelRatio || 1;
-            canvas.width = baseSize * dpr;
-            canvas.height = baseSize * dpr;
-            canvas.style.width = `${baseSize}px`;
-            canvas.style.height = `${baseSize}px`;
-            ctx.scale(dpr, dpr);
 
             // App State
             let isDrawing = false;
@@ -327,7 +297,32 @@
             let formulasToDraw = [];
             let forceGraphType = 'auto';
             let isDrawingVisible = true;
+            let baseSize; // Will be set dynamically
             const plotColors = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8'];
+
+            // --- Canvas Setup ---
+            const setupCanvas = (isInitialSetup = false) => {
+                const dpr = window.devicePixelRatio || 1;
+                // Get the actual rendered width from CSS (e.g., width: 100%)
+                const newSize = Math.floor(canvas.clientWidth);
+                baseSize = newSize;
+
+                // Set the canvas drawing buffer size (internal resolution)
+                canvas.width = baseSize * dpr;
+                canvas.height = baseSize * dpr; // Make it square
+
+                // Set the display size (CSS) to match the width, making it square
+                canvas.style.height = `${baseSize}px`;
+
+                // Scale the context to avoid blurriness on high-DPI screens
+                ctx.resetTransform(); // Clear any previous scaling
+                ctx.scale(dpr, dpr);
+
+                // On resize, we need to redraw everything. On initial setup, reset() will handle the first draw.
+                if (!isInitialSetup) {
+                    redrawScene();
+                }
+            };
 
             // --- Coordinate Conversion ---
             const getRange = () => {
@@ -422,6 +417,7 @@
                 } catch (error) { console.error("Error drawing formula graph:", error, formula); }
             };
             const redrawScene = () => {
+                if (!baseSize) return; // Don't draw if canvas size is not set yet
                 ctx.clearRect(0, 0, baseSize, baseSize);
                 drawAxes();
                 drawUserPath();
@@ -763,6 +759,9 @@
             canvas.addEventListener('mouseup', stopDrawing); canvas.addEventListener('mouseleave', stopDrawing);
             canvas.addEventListener('touchstart', startDrawing, { passive: false }); canvas.addEventListener('touchmove', draw, { passive: false });
             canvas.addEventListener('touchend', stopDrawing);
+            
+            window.addEventListener('resize', () => setupCanvas(false));
+            setupCanvas(true);
 
             reset();
         });
