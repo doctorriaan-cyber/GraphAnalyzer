@@ -479,8 +479,6 @@
             
             /**
              * Solves a system of linear equations using Gaussian elimination.
-             * @param {number[][]} matrix - The augmented matrix [A|b].
-             * @returns {number[]|null} The solution vector or null if no unique solution.
              */
             const solveLinearSystem = (matrix) => {
                 const n = matrix.length;
@@ -521,9 +519,6 @@
             
             /**
              * Performs polynomial regression on a set of data points.
-             * @param { {x: number, y: number}[] } data - The array of data points.
-             * @param {number} degree - The degree of the polynomial to fit.
-             * @returns {number[]|null} The coefficients of the polynomial or null on failure.
              */
             const polynomialRegression = (data, degree) => {
                 const n = degree + 1;
@@ -540,67 +535,219 @@
             };
 
             /**
-             * Calculates the R-squared value for a given fit.
-             * @param { {x: number, y: number}[] } data - The original data points.
-             * @param {number[]} coefficients - The polynomial coefficients.
-             * @returns {number} The R-squared value.
+             * Calculates the R-squared value for a polynomial fit.
              */
             const calculateRSquared = (data, coefficients) => {
                 const yMean = data.reduce((sum, p) => sum + p.y, 0) / data.length;
-                
                 const predict = (x) => coefficients.reduce((sum, c, i) => sum + c * Math.pow(x, i), 0);
-                
                 const ssr = data.reduce((sum, p) => sum + Math.pow(p.y - predict(p.x), 2), 0);
                 const sst = data.reduce((sum, p) => sum + Math.pow(p.y - yMean, 2), 0);
+                return sst === 0 ? 1 : 1 - (ssr / sst);
+            };
+            
+            /**
+             * Performs trigonometric regression to fit data to A*sin(B*x + C) + D.
+             */
+            const trigonometricRegression = (data) => {
+                if (data.length < 5) return null;
+
+                let yMin = Infinity, yMax = -Infinity;
+                data.forEach(p => {
+                    if (p.y < yMin) yMin = p.y;
+                    if (p.y > yMax) yMax = p.y;
+                });
+
+                const amplitude = (yMax - yMin) / 2;
+                const verticalShift = (yMax + yMin) / 2;
+
+                if (amplitude < 0.1 * (getRange().max - getRange().min)) return null;
+
+                const crossings = [];
+                for (let i = 1; i < data.length; i++) {
+                    const p1 = data[i - 1];
+                    const p2 = data[i];
+                    if ((p1.y - verticalShift) * (p2.y - verticalShift) < 0) {
+                        const x = p1.x + (p2.x - p1.x) * (verticalShift - p1.y) / (p2.y - p1.y);
+                        const slope = (p2.y - p1.y) / (p2.x - p1.x);
+                        crossings.push({ x, slope });
+                    }
+                }
+
+                if (crossings.length < 2) return null;
+
+                const periods = [];
+                for (let i = 1; i < crossings.length; i++) {
+                    if (crossings[i].slope > 0 && crossings[i-1].slope < 0 || crossings[i].slope < 0 && crossings[i-1].slope > 0) {
+                         periods.push(2 * Math.abs(crossings[i].x - crossings[i-1].x));
+                    }
+                }
+                if (periods.length === 0 && crossings.length >= 2) {
+                   const numHalfPeriods = crossings.length - 1;
+                   const totalDistance = crossings[crossings.length - 1].x - crossings[0].x;
+                   if (numHalfPeriods > 0 && totalDistance > 0) {
+                       periods.push(2 * (totalDistance / numHalfPeriods));
+                   }
+                }
                 
+                if (periods.length === 0) return null;
+
+                const avgPeriod = periods.reduce((sum, p) => sum + p, 0) / periods.length;
+                if (avgPeriod <= 1e-6) return null;
+                
+                const frequency = (2 * Math.PI) / avgPeriod;
+
+                let firstUpwardCrossingX = null;
+                for (const cross of crossings) {
+                    if (cross.slope > 0) {
+                        firstUpwardCrossingX = cross.x;
+                        break;
+                    }
+                }
+                
+                let phaseShift = 0;
+                if (firstUpwardCrossingX !== null) {
+                    phaseShift = -frequency * firstUpwardCrossingX;
+                } else {
+                    const p0 = data[0];
+                    if (amplitude > 1e-6) {
+                        phaseShift = Math.asin((p0.y - verticalShift) / amplitude) - frequency * p0.x;
+                    }
+                }
+
+                return { A: amplitude, B: frequency, C: phaseShift, D: verticalShift };
+            };
+
+            /**
+             * Calculates the R-squared value for a trigonometric fit.
+             */
+            const calculateRSquaredTrig = (data, params) => {
+                if (!params) return -Infinity;
+                const yMean = data.reduce((sum, p) => sum + p.y, 0) / data.length;
+                const predict = (x) => params.A * Math.sin(params.B * x + params.C) + params.D;
+                const ssr = data.reduce((sum, p) => sum + Math.pow(p.y - predict(p.x), 2), 0);
+                const sst = data.reduce((sum, p) => sum + Math.pow(p.y - yMean, 2), 0);
                 return sst === 0 ? 1 : 1 - (ssr / sst);
             };
 
             /**
+             * Performs reciprocal regression for functions of the form y = A/x
+             */
+            const reciprocalRegression = (data) => {
+                let sumXY = 0;
+                let validPoints = 0;
+                data.forEach(p => {
+                    if (Math.abs(p.x) > 1e-6) {
+                        sumXY += p.x * p.y;
+                        validPoints++;
+                    }
+                });
+                if (validPoints < 5) return null;
+                const A = sumXY / validPoints;
+                return { A };
+            };
+
+            /**
+             * Calculates R-squared for a reciprocal fit.
+             */
+            const calculateRSquaredReciprocal = (data, params) => {
+                if (!params) return -Infinity;
+                const yMean = data.reduce((sum, p) => sum + p.y, 0) / data.length;
+                const predict = (x) => {
+                    if (Math.abs(x) < 1e-6) return Infinity;
+                    return params.A / x;
+                };
+                let ssr = 0, sst = 0, validPoints = 0;
+                data.forEach(p => {
+                    const predictedY = predict(p.x);
+                    if (isFinite(predictedY)) {
+                        ssr += Math.pow(p.y - predictedY, 2);
+                        sst += Math.pow(p.y - yMean, 2);
+                        validPoints++;
+                    }
+                });
+                if (validPoints === 0 || sst === 0) return -Infinity;
+                return 1 - (ssr / sst);
+            };
+
+            /**
+             * Formats the trigonometric parameters into a readable string.
+             */
+            const formatTrigonometric = (params) => {
+                if (!params) return null;
+                let { A, B, C, D } = params;
+                
+                if (A < 0) {
+                    A = -A;
+                    C += Math.PI;
+                }
+
+                let result = '';
+                if (Math.abs(A - 1) > 1e-2) {
+                    result += A.toFixed(2) + '*';
+                }
+
+                let sinInner = '';
+                if (Math.abs(B - 1) > 1e-2) {
+                    sinInner += B.toFixed(2) + '*x';
+                } else {
+                    sinInner += 'x';
+                }
+                
+                if (Math.abs(C) > 1e-2) {
+                    sinInner += (C > 0 ? ' + ' : ' - ') + Math.abs(C).toFixed(2);
+                }
+                result += `sin(${sinInner})`;
+
+                if (Math.abs(D) > 1e-2) {
+                    result += (D > 0 ? ' + ' : ' - ') + Math.abs(D).toFixed(2);
+                }
+
+                return result;
+            };
+
+            /**
+             * Formats the reciprocal parameters into a readable string.
+             */
+            const formatReciprocal = (params) => {
+                if (!params) return null;
+                return `${params.A.toFixed(2)} / x`;
+            };
+
+            /**
              * Formats the polynomial coefficients into a readable and evaluatable string.
-             * This version specifically handles the unary minus with exponentiation ambiguity.
-             * @param {number[]} coefficients - The polynomial coefficients.
-             * @returns {string} The formatted formula string.
              */
             const formatPolynomial = (coefficients) => {
                 if (!coefficients || coefficients.length === 0) return '0.00';
 
                 let parts = [];
-                // Iterate from highest degree down
                 for (let i = coefficients.length - 1; i >= 0; i--) {
                     const c = coefficients[i];
-                    if (Math.abs(c) < 1e-6) continue; // Skip negligible terms
+                    if (Math.abs(c) < 1e-6) continue;
 
                     let term;
                     const absC = Math.abs(c);
                     const isCoeffOne = Math.abs(absC - 1) < 1e-6;
 
-                    // Step 1: Build the value part of the term (e.g., "2.00*x^2" or "x^2")
                     let valuePart = '';
                     if (isCoeffOne && i > 0) {
-                        // For powers of x with coefficient 1, just show "x^n"
                         valuePart = '';
                     } else {
                         valuePart = absC.toFixed(2);
                     }
 
-                    if (i > 0) { // Add the variable part if it's not a constant
-                        if (valuePart !== '') valuePart += '*'; // Add multiplier if there's a coefficient
+                    if (i > 0) {
+                        if (valuePart !== '') valuePart += '*';
                         valuePart += 'x';
                         if (i > 1) valuePart += `^${i}`;
                     }
                     
-                    // This is needed for the (-1)*x^n case where valuePart starts empty
                     if (valuePart === '') valuePart = 'x' + (i > 1 ? `^${i}` : '');
 
-
-                    // Step 2: Prepend the sign and handle the ambiguous case
-                    if (parts.length > 0) { // This is not the first term
+                    if (parts.length > 0) {
                         term = (c > 0) ? ` + ${valuePart}` : ` - ${valuePart}`;
-                    } else { // This is the first term of the expression
+                    } else {
                         if (c < 0) {
                              if (isCoeffOne && i > 0) {
-                                // Handles the "-x^n" case by making it unambiguous for JS eval
                                 term = `(-1)*${valuePart}`;
                              } else {
                                 term = `-${valuePart}`;
@@ -617,7 +764,7 @@
             };
 
             const analyzeGraph = () => {
-                const allPoints = lines.flat();
+                const allPoints = lines.flat().sort((a,b) => a.x - b.x);
                 if (allPoints.length < 10) {
                     resultEl.innerHTML = `<span class="placeholder" style="color: #d9534f;">Please draw a more complete graph.</span>`;
                     return;
@@ -633,32 +780,89 @@
 
                 resultEl.innerHTML = `<span class="placeholder">Calculating best fit...</span>`;
                 
-                // Use a timeout to allow the UI to update before the calculation starts.
                 setTimeout(() => {
                     try {
-                        let bestFit = { degree: -1, rSquared: -Infinity, coefficients: null };
+                        // --- Polynomial Analysis ---
+                        let bestPolyFit = { degree: -1, rSquared: -Infinity, coefficients: null };
                         const maxDegree = Math.min(4, allPoints.length - 2);
-
                         for (let degree = 1; degree <= maxDegree; degree++) {
                             const coefficients = polynomialRegression(allPoints, degree);
                             if (!coefficients) continue;
-
                             const rSquared = calculateRSquared(allPoints, coefficients);
-                            
-                            // Prefer simpler models that are still a good fit.
                             const adjustedRSquared = rSquared - (degree * 0.01);
-
-                            if (adjustedRSquared > bestFit.rSquared) {
-                                bestFit = { degree, rSquared, coefficients };
+                            if (adjustedRSquared > bestPolyFit.rSquared) {
+                                bestPolyFit = { degree, rSquared, coefficients };
                             }
                         }
 
-                        if (bestFit.degree === -1 || !bestFit.coefficients) {
-                            throw new Error("Could not find a suitable function fit.");
+                        // --- Trigonometric Analysis ---
+                        let bestTrigFit = { rSquared: -Infinity, params: null };
+                        const trigParams = trigonometricRegression(allPoints);
+                        if (trigParams) {
+                            const trigRSquared = calculateRSquaredTrig(allPoints, trigParams);
+                            bestTrigFit = { rSquared: trigRSquared, params: trigParams };
                         }
                         
-                        const formulaString = formatPolynomial(bestFit.coefficients);
-                        
+                        // --- Reciprocal Analysis ---
+                        let bestReciprocalFit = { rSquared: -Infinity, params: null };
+                        // Heuristic: Reciprocal functions often have multiple disconnected lines.
+                        if (lines.length > 1) { 
+                            const reciprocalParams = reciprocalRegression(allPoints);
+                            if (reciprocalParams) {
+                                const reciprocalRSquared = calculateRSquaredReciprocal(allPoints, reciprocalParams);
+                                // Give a slight boost to reciprocal fit if multiple lines are drawn, as it's a strong indicator.
+                                bestReciprocalFit = { rSquared: reciprocalRSquared + 0.05, params: reciprocalParams }; 
+                            }
+                        }
+
+                        // --- Compare and Select Best Fit ---
+                        let formulaString;
+                        let bestFitType = 'none';
+                        let bestR2 = -Infinity;
+
+                        if(bestPolyFit.rSquared > bestR2) {
+                            bestR2 = bestPolyFit.rSquared;
+                            bestFitType = 'polynomial';
+                        }
+                        if(bestTrigFit.rSquared > bestR2) {
+                            bestR2 = bestTrigFit.rSquared;
+                            bestFitType = 'trigonometric';
+                        }
+                        if(bestReciprocalFit.rSquared > bestR2) {
+                            bestR2 = bestReciprocalFit.rSquared;
+                            bestFitType = 'reciprocal';
+                        }
+
+                        console.log(`Poly R^2: ${bestPolyFit.rSquared.toFixed(4)}, Trig R^2: ${bestTrigFit.rSquared.toFixed(4)}, Reciprocal R^2: ${(bestReciprocalFit.rSquared - 0.05).toFixed(4)}`);
+                        console.log(`Selected fit: ${bestFitType}`);
+
+                        switch(bestFitType) {
+                            case 'polynomial':
+                                if (bestPolyFit.degree === -1 || !bestPolyFit.coefficients) {
+                                    throw new Error("Could not find a suitable polynomial fit.");
+                                }
+                                formulaString = formatPolynomial(bestPolyFit.coefficients);
+                                break;
+                            case 'trigonometric':
+                                if (!bestTrigFit.params) {
+                                    throw new Error("Could not find a suitable trigonometric fit.");
+                                }
+                                formulaString = formatTrigonometric(bestTrigFit.params);
+                                break;
+                            case 'reciprocal':
+                                if (!bestReciprocalFit.params) {
+                                    throw new Error("Could not find a suitable reciprocal fit.");
+                                }
+                                formulaString = formatReciprocal(bestReciprocalFit.params);
+                                break;
+                            default:
+                                throw new Error("No suitable function fit found.");
+                        }
+
+                        if (!formulaString) {
+                            throw new Error("Could not format the resulting formula.");
+                        }
+
                         analyzedFormula = formulaString;
                         functionInput.value = analyzedFormula;
                         resultEl.innerHTML = `f(x) &approx; <strong>${analyzedFormula}</strong>`;
@@ -671,7 +875,7 @@
                         analyzeBtn.disabled = false;
                         analyzeBtn.textContent = "Analyze";
                     }
-                }, 50); // 50ms timeout
+                }, 50);
             };
             
             // --- Event Listeners Setup ---
@@ -695,7 +899,6 @@
 
             functionInput.addEventListener('input', () => {
                 drawFuncBtn.disabled = functionInput.value.trim() === '';
-                // If user types, the drawn formula might become outdated. Clear it.
                 if (formulaToDraw) {
                     formulaToDraw = null;
                     redrawScene();
