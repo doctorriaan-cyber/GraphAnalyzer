@@ -1,0 +1,537 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Graph Analyzer</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #f0f2f5;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            padding: 1rem;
+            box-sizing: border-box;
+        }
+        h1 {
+            color: #333;
+            font-size: 1.5rem;
+            margin: 0 0 1rem 0;
+            text-align: center;
+        }
+        .range-controls {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            color: #555;
+            font-size: 0.9rem;
+        }
+        .range-controls input {
+            width: 60px;
+            padding: 0.5rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 1rem;
+            text-align: center;
+        }
+        #updateRangeBtn {
+            margin-bottom: 1rem;
+            background-color: #6c757d;
+            color: white;
+            padding: 0.5rem 1rem;
+            font-size: 0.9rem;
+        }
+        #updateRangeBtn:hover {
+            background-color: #5a6268;
+        }
+        canvas {
+            background-color: #ffffff;
+            border: 2px solid #cccccc;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            cursor: crosshair;
+            touch-action: none;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        button {
+            padding: 0.75rem 1.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s ease, transform 0.1s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            -webkit-tap-highlight-color: transparent;
+        }
+        button:active {
+            transform: scale(0.98);
+        }
+        #analyzeBtn {
+            background-color: #007bff;
+            color: white;
+        }
+        #analyzeBtn:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+        #analyzeBtn:disabled {
+            background-color: #a0c7ff;
+            cursor: not-allowed;
+        }
+        #drawFuncBtn {
+            background-color: #28a745;
+            color: white;
+        }
+        #drawFuncBtn:hover:not(:disabled) {
+            background-color: #218838;
+        }
+        #drawFuncBtn:disabled {
+            background-color: #94dcb0;
+            cursor: not-allowed;
+        }
+        #clearBtn {
+            background-color: #f1f3f5;
+            color: #333;
+            border: 1px solid #ddd;
+        }
+        #clearBtn:hover {
+            background-color: #e2e6ea;
+        }
+        #result-container {
+            margin-top: 1rem;
+            padding: 1rem;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            min-height: 50px;
+            width: 90%;
+            max-width: 380px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            box-sizing: border-box;
+        }
+        #result {
+            font-family: 'SF Mono', 'Courier New', monospace;
+            font-size: 1.1rem;
+            color: #333;
+            word-break: break-all;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        #result .placeholder {
+            color: #999;
+            font-style: italic;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-size: 1rem;
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://esm.sh/@google/genai@^1.15.0"
+  }
+}
+</script>
+</head>
+<body>
+    <div class="container">
+        <h1>Graph Analyzer</h1>
+        <div class="range-controls">
+            <label for="minRange">Min:</label>
+            <input type="number" id="minRange" value="0" step="1">
+            <label for="maxRange">Max:</label>
+            <input type="number" id="maxRange" value="10" step="1">
+        </div>
+        <button id="updateRangeBtn">Update Range</button>
+        <canvas id="drawCanvas"></canvas>
+        <div class="controls">
+            <button id="analyzeBtn">Analyze</button>
+            <button id="drawFuncBtn" disabled>Draw Function</button>
+            <button id="clearBtn">Clear</button>
+        </div>
+        <div id="result-container">
+            <p id="result">
+                <span class="placeholder">Draw a function and click "Analyze"</span>
+            </p>
+        </div>
+    </div>
+
+    <script type="module">
+        import { GoogleGenAI } from "@google/genai";
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // DOM Elements
+            const canvas = document.getElementById('drawCanvas');
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            const clearBtn = document.getElementById('clearBtn');
+            const drawFuncBtn = document.getElementById('drawFuncBtn');
+            const resultEl = document.getElementById('result');
+            const minRangeInput = document.getElementById('minRange');
+            const maxRangeInput = document.getElementById('maxRange');
+            const updateRangeBtn = document.getElementById('updateRangeBtn');
+            const ctx = canvas.getContext('2d');
+            
+            // Additional elements for sizing
+            const container = document.querySelector('.container');
+            const h1 = document.querySelector('h1');
+            const rangeControls = document.querySelector('.range-controls');
+            const controls = document.querySelector('.controls');
+            const resultContainer = document.getElementById('result-container');
+
+            if (!canvas || !ctx || !analyzeBtn || !clearBtn || !drawFuncBtn || !resultEl || !minRangeInput || !maxRangeInput || !updateRangeBtn || !container || !h1 || !rangeControls || !controls || !resultContainer) {
+                console.error('Essential DOM elements not found.');
+                return;
+            }
+
+            // --- Canvas Size Calculation ---
+            // This logic dynamically calculates the largest possible square canvas that fits on the screen.
+            const remToPx = (rem) => rem * parseFloat(getComputedStyle(document.documentElement).fontSize);
+            
+            const verticalSpacing = 
+                remToPx(1) + // container padding-top
+                remToPx(1) + // h1 margin-bottom
+                remToPx(0.5) + // range-controls margin-bottom
+                remToPx(1) + // updateRangeBtn margin-bottom
+                remToPx(1) + // controls margin-top
+                remToPx(1) + // result-container margin-top
+                remToPx(1);  // container padding-bottom
+
+            const otherElementsHeight = 
+                h1.offsetHeight + 
+                rangeControls.offsetHeight + 
+                updateRangeBtn.offsetHeight + 
+                controls.offsetHeight + 
+                resultContainer.offsetHeight;
+
+            const totalNonCanvasHeight = otherElementsHeight + verticalSpacing;
+            
+            const availableHeight = window.innerHeight - totalNonCanvasHeight;
+            const availableWidth = container.clientWidth;
+            
+            const baseSize = Math.max(150, Math.floor(Math.min(availableWidth, availableHeight)));
+            
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = baseSize * dpr;
+            canvas.height = baseSize * dpr;
+            canvas.style.width = `${baseSize}px`;
+            canvas.style.height = `${baseSize}px`;
+            ctx.scale(dpr, dpr);
+
+            // App State
+            let isDrawing = false;
+            let lines = []; // Array of arrays to hold disconnected lines
+            let currentFormula = null;
+            let isFormulaDrawn = false;
+
+            // --- Coordinate Conversion ---
+            const getRange = () => {
+                const min = parseFloat(minRangeInput.value) || 0;
+                const max = parseFloat(maxRangeInput.value) || 10;
+                return { min, max };
+            };
+
+            const graphToCanvas = (gx, gy) => {
+                const { min, max } = getRange();
+                const range = max - min;
+                if (range === 0) return { x: baseSize / 2, y: baseSize / 2 };
+                const x = ((gx - min) / range) * baseSize;
+                const y = baseSize - (((gy - min) / range) * baseSize);
+                return { x, y };
+            };
+
+            const canvasToGraph = (cx, cy) => {
+                const { min, max } = getRange();
+                const range = max - min;
+                const gx = (cx / baseSize) * range + min;
+                const gy = ((baseSize - cy) / baseSize) * range + min;
+                return { x: gx, y: gy };
+            };
+
+            // --- Drawing Functions ---
+            const drawAxes = () => {
+                const { min, max } = getRange();
+                ctx.strokeStyle = '#cccccc';
+                ctx.lineWidth = 1;
+                ctx.font = `${12}px Arial`;
+                ctx.fillStyle = '#888888';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+
+                // Get origin pixel position
+                const origin = graphToCanvas(0, 0);
+
+                // Draw Y-axis
+                ctx.beginPath();
+                ctx.moveTo(origin.x, 0);
+                ctx.lineTo(origin.x, baseSize);
+                ctx.stroke();
+
+                // Draw X-axis
+                ctx.beginPath();
+                ctx.moveTo(0, origin.y);
+                ctx.lineTo(baseSize, origin.y);
+                ctx.stroke();
+
+                // Draw ticks and labels
+                const tickCount = 5;
+                const range = max - min;
+                const step = range / tickCount;
+
+                for (let i = 0; i <= tickCount; i++) {
+                    const val = min + i * step;
+                    const tickVal = parseFloat(val.toFixed(1));
+
+                    // X-axis ticks
+                    const xTickPos = graphToCanvas(tickVal, 0);
+                    ctx.fillText(tickVal.toString(), xTickPos.x, origin.y + 15);
+
+                    // Y-axis ticks
+                    if (tickVal !== 0) { // Avoid double-drawing origin
+                        const yTickPos = graphToCanvas(0, tickVal);
+                        ctx.textAlign = 'right';
+                        ctx.fillText(tickVal.toString(), origin.x - 8, yTickPos.y);
+                        ctx.textAlign = 'center';
+                    }
+                }
+            };
+            
+            const drawUserPath = () => {
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 2.5;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                lines.forEach(line => {
+                    if (line.length < 2) return;
+                    ctx.beginPath();
+                    const startPoint = graphToCanvas(line[0].x, line[0].y);
+                    ctx.moveTo(startPoint.x, startPoint.y);
+                    for (let i = 1; i < line.length; i++) {
+                        const point = graphToCanvas(line[i].x, line[i].y);
+                        ctx.lineTo(point.x, point.y);
+                    }
+                    ctx.stroke();
+                });
+            };
+
+            const drawFormulaOnCanvas = () => {
+                if (!currentFormula) return;
+                
+                let sanitizedFormula = currentFormula.trim()
+                    .replace(/^f\(x\)\s*=\s*/i, '')
+                    .replace(/\^/g, '**');
+
+                sanitizedFormula = sanitizedFormula.replace(/(^|[\s,(+*/])(-)\s*(\S+)\s*\*\*\s*(\S+)/g, '$1(-1)*($3)**($4)');
+
+                const mathFunctions = ['sin', 'cos', 'tan', 'sqrt', 'exp', 'log', 'abs', 'PI', 'E'];
+                mathFunctions.forEach(func => {
+                    const regex = new RegExp(`\\b${func}\\b`, 'gi');
+                    sanitizedFormula = sanitizedFormula.replace(regex, `Math.${func.toUpperCase()}`);
+                });
+
+                sanitizedFormula = sanitizedFormula.replace(/(\d)([a-zA-Z(])/g, '$1*$2');
+                sanitizedFormula = sanitizedFormula.replace(/(\))([a-zA-Z\d(])/g, '$1*$2');
+                sanitizedFormula = sanitizedFormula.replace(/x\(/g, 'x*(');
+
+                try {
+                    const func = new Function('x', `return ${sanitizedFormula}`);
+                    const { min, max } = getRange();
+                    
+                    ctx.beginPath();
+                    ctx.strokeStyle = '#007bff';
+                    ctx.lineWidth = 2;
+                    let firstPoint = true;
+                    const steps = baseSize * 2; 
+
+                    for (let i = 0; i <= steps; i++) {
+                        const gx = min + (i / steps) * (max - min);
+                        let gy;
+
+                        try {
+                             gy = func(gx);
+                        } catch(e) {
+                            firstPoint = true;
+                            continue;
+                        }
+
+                        if (typeof gy !== 'number' || !isFinite(gy)) {
+                            firstPoint = true;
+                            continue;
+                        }
+
+                        const {x, y} = graphToCanvas(gx, gy);
+                        
+                        if (firstPoint) {
+                            ctx.moveTo(x, y);
+                            firstPoint = false;
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                    }
+                    ctx.stroke();
+
+                } catch (error) {
+                    console.error("Error drawing formula graph:", error, sanitizedFormula);
+                    resultEl.innerHTML += `<br><span class="placeholder" style="font-size: 0.8rem; color: #d9534f;">Could not plot formula.</span>`;
+                }
+            };
+
+            const redrawScene = () => {
+                ctx.clearRect(0, 0, baseSize, baseSize);
+                drawAxes();
+                drawUserPath();
+                if (isFormulaDrawn) {
+                    drawFormulaOnCanvas();
+                }
+            };
+
+            const reset = () => {
+                lines = [];
+                currentFormula = null;
+                isFormulaDrawn = false;
+                minRangeInput.value = '0';
+                maxRangeInput.value = '10';
+                resultEl.innerHTML = `<span class="placeholder">Draw a function and click "Analyze"</span>`;
+                analyzeBtn.disabled = false;
+                analyzeBtn.textContent = "Analyze";
+                drawFuncBtn.disabled = true;
+                redrawScene();
+            };
+
+            // --- Event Handlers ---
+            const getCoordinates = (event) => {
+                const rect = canvas.getBoundingClientRect();
+                if (event instanceof TouchEvent && event.touches.length > 0) {
+                    return {
+                        x: event.touches[0].clientX - rect.left,
+                        y: event.touches[0].clientY - rect.top
+                    };
+                }
+                return {
+                    x: event.clientX - rect.left,
+                    y: event.clientY - rect.top
+                };
+            };
+
+            const startDrawing = (e) => {
+                e.preventDefault();
+                isDrawing = true;
+                lines.push([]); 
+                const { x, y } = getCoordinates(e);
+                const graphPoint = canvasToGraph(x, y);
+                lines[lines.length - 1].push(graphPoint); 
+                redrawScene();
+            };
+
+            const draw = (e) => {
+                if (!isDrawing) return;
+                e.preventDefault();
+                const { x, y } = getCoordinates(e);
+                const graphPoint = canvasToGraph(x, y);
+                lines[lines.length - 1].push(graphPoint); 
+                redrawScene();
+            };
+
+            const stopDrawing = () => {
+                isDrawing = false;
+            };
+
+            const analyzeGraph = async () => {
+                const allPoints = lines.flat();
+                if (allPoints.length < 10) {
+                    resultEl.innerHTML = `<span class="placeholder" style="color: #d9534f;">Please draw a more complete graph.</span>`;
+                    return;
+                }
+
+                analyzeBtn.disabled = true;
+                analyzeBtn.textContent = "Analyzing...";
+                drawFuncBtn.disabled = true;
+                
+                // FIX: Reset state and clear old formula from canvas immediately
+                isFormulaDrawn = false;
+                currentFormula = null;
+                redrawScene(); 
+
+                resultEl.innerHTML = `<span class="placeholder">AI is thinking...</span>`;
+
+                try {
+                    const { min, max } = getRange();
+                    const pointsString = allPoints
+                        .map(p => `(${p.x.toFixed(2)}, ${p.y.toFixed(2)})`)
+                        .join(', ');
+
+                    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+                    const prompt = `You are a mathematical expert specializing in curve fitting. Analyze the provided (x, y) data points from a user's drawing. The x and y values exist within the range [${min}, ${max}]. Determine the most likely mathematical function f(x) that represents the drawing. The function should be as simple as possible. Consider linear, quadratic, cubic, and simple trigonometric or exponential functions. Provide ONLY the mathematical expression for the function. Do not include "f(x) =" or any explanations. Example response: 2*x + 1
+
+Data points: ${pointsString}`;
+
+                    const response = await ai.models.generateContent({
+                      model: 'gemini-2.5-flash',
+                      contents: prompt,
+                    });
+
+                    const text = response.text;
+                    if (!text) {
+                        throw new Error("Received an empty response from the AI.");
+                    }
+
+                    currentFormula = text.trim();
+                    resultEl.innerHTML = `f(x) &approx; <strong>${currentFormula}</strong>`;
+                    drawFuncBtn.disabled = false;
+
+                } catch (error) {
+                    console.error("Error analyzing graph:", error);
+                    resultEl.innerHTML = `<span class="placeholder" style="color: #d9534f;">Could not analyze graph. See console for details.</span>`;
+                } finally {
+                    analyzeBtn.disabled = false;
+                    analyzeBtn.textContent = "Analyze";
+                }
+            };
+            
+            // --- Event Listeners Setup ---
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            canvas.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('mouseleave', stopDrawing);
+            canvas.addEventListener('touchstart', startDrawing, { passive: false });
+            canvas.addEventListener('touchmove', draw, { passive: false });
+            canvas.addEventListener('touchend', stopDrawing);
+
+            clearBtn.addEventListener('click', reset);
+            analyzeBtn.addEventListener('click', analyzeGraph);
+            drawFuncBtn.addEventListener('click', () => {
+                if (!currentFormula) return; // Don't draw if there's no formula
+                isFormulaDrawn = true;
+                redrawScene();
+            });
+            updateRangeBtn.addEventListener('click', redrawScene);
+
+            // Initial Draw
+            reset();
+        });
+    </script>
+</body>
+</html>
