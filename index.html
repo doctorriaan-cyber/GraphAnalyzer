@@ -358,6 +358,30 @@
                 });
             };
 
+            const sanitizeAndCreateFunction = (formula) => {
+                if (!formula) return null;
+                let sanitizedFormula = formula.trim()
+                    .replace(/^f\(x\)\s*=\s*/i, '')
+                    .replace(/\^/g, '**');
+
+                const mathFunctions = ['sin', 'cos', 'tan', 'sqrt', 'exp', 'log', 'abs', 'PI', 'E'];
+                mathFunctions.forEach(func => {
+                    const regex = new RegExp(`\\b${func}\\b`, 'gi');
+                    sanitizedFormula = sanitizedFormula.replace(regex, `Math.${func.toUpperCase()}`);
+                });
+
+                sanitizedFormula = sanitizedFormula.replace(/(\d)([a-zA-Z(])/g, '$1*$2');
+                sanitizedFormula = sanitizedFormula.replace(/(\))([a-zA-Z\d(])/g, '$1*$2');
+                sanitizedFormula = sanitizedFormula.replace(/x\(/g, 'x*(');
+                
+                try {
+                    return new Function('x', `return ${sanitizedFormula}`);
+                } catch (error) {
+                    console.error("Error creating function from formula:", error, sanitizedFormula);
+                    return null;
+                }
+            };
+
             const drawCircleOnCanvas = (params) => {
                  if (!params) return;
                  const { h, k, r } = params;
@@ -375,22 +399,13 @@
             const drawFormulaOnCanvas = (formula) => {
                 if (!formula) return;
                 
-                let sanitizedFormula = formula.trim()
-                    .replace(/^f\(x\)\s*=\s*/i, '')
-                    .replace(/\^/g, '**');
-
-                const mathFunctions = ['sin', 'cos', 'tan', 'sqrt', 'exp', 'log', 'abs', 'PI', 'E'];
-                mathFunctions.forEach(func => {
-                    const regex = new RegExp(`\\b${func}\\b`, 'gi');
-                    sanitizedFormula = sanitizedFormula.replace(regex, `Math.${func.toUpperCase()}`);
-                });
-
-                sanitizedFormula = sanitizedFormula.replace(/(\d)([a-zA-Z(])/g, '$1*$2');
-                sanitizedFormula = sanitizedFormula.replace(/(\))([a-zA-Z\d(])/g, '$1*$2');
-                sanitizedFormula = sanitizedFormula.replace(/x\(/g, 'x*(');
+                const func = sanitizeAndCreateFunction(formula);
+                if (!func) {
+                    resultEl.innerHTML += `<br><span class="placeholder" style="font-size: 0.8rem; color: #d9534f;">Could not plot formula.</span>`;
+                    return;
+                }
 
                 try {
-                    const func = new Function('x', `return ${sanitizedFormula}`);
                     const { min, max } = getRange();
                     
                     ctx.beginPath();
@@ -423,8 +438,7 @@
                     ctx.stroke();
 
                 } catch (error) {
-                    console.error("Error drawing formula graph:", error, sanitizedFormula);
-                    resultEl.innerHTML += `<br><span class="placeholder" style="font-size: 0.8rem; color: #d9534f;">Could not plot formula.</span>`;
+                    console.error("Error drawing formula graph:", error, formula);
                 }
             };
 
@@ -577,6 +591,8 @@
 
                 const amplitude = (yMax - yMin) / 2;
                 const verticalShift = (yMax + yMin) / 2;
+                
+                if (amplitude < (yMax-yMin)*0.1) return null; // Avoid flat lines
 
                 const crossings = [];
                 for (let i = 1; i < data.length; i++) {
@@ -610,13 +626,11 @@
                 
                 const frequency = (2 * Math.PI) / avgPeriod;
 
-                // Improved Phase Shift Calculation
                 const p0 = data[0];
-                if (amplitude < 1e-6) return null; // Avoid division by zero
-                
-                const initialAngle = Math.asin((p0.y - verticalShift) / amplitude);
+                const safeAmplitude = Math.max(amplitude, 1e-6);
+                const initialVal = Math.max(-1, Math.min(1, (p0.y - verticalShift) / safeAmplitude));
+                const initialAngle = Math.asin(initialVal);
 
-                // Two possible starting points. Test which one fits better with the next point.
                 const phaseShift1 = initialAngle - frequency * p0.x;
                 const phaseShift2 = Math.PI - initialAngle - frequency * p0.x;
 
@@ -747,6 +761,107 @@
             };
 
             /**
+             * Performs tangent regression for functions of the form y = A*tan(B*x + C) + D.
+             */
+            const tangentRegression = (lines, allPoints) => {
+                if (lines.length < 2 || allPoints.length < 10) return null;
+
+                const areLinesIncreasing = lines.every(line => {
+                    if (line.length < 2) return false;
+                    const slope = (line[line.length-1].y - line[0].y) / (line[line.length-1].x - line[0].x);
+                    return slope > 0.1; // Must be reasonably increasing
+                });
+                if (!areLinesIncreasing) return null;
+
+                const midpoints = lines.map(line => {
+                    const midIndex = Math.floor(line.length / 2);
+                    return line[midIndex];
+                }).sort((a,b) => a.x - b.x);
+
+                if (midpoints.length < 2) return null;
+
+                const periods = [];
+                for (let i = 1; i < midpoints.length; i++) {
+                    periods.push(midpoints[i].x - midpoints[i-1].x);
+                }
+                const avgPeriod = periods.reduce((sum, p) => sum + p, 0) / periods.length;
+                if (avgPeriod <= 1e-6) return null;
+
+                const frequency = Math.PI / avgPeriod; // B
+                const verticalShift = midpoints.reduce((sum, p) => sum + p.y, 0) / midpoints.length; // D
+                const horizontalShift = -frequency * midpoints[0].x; // C
+
+                // Estimate Amplitude (A)
+                let sumA = 0, countA = 0;
+                lines.forEach(line => {
+                    // Use a point that's not the midpoint to avoid tan(0)
+                    const samplePoint = line[Math.floor(line.length * 0.25)];
+                    const tanVal = Math.tan(frequency * samplePoint.x + horizontalShift);
+                    if (Math.abs(tanVal) > 1e-2) {
+                        sumA += (samplePoint.y - verticalShift) / tanVal;
+                        countA++;
+                    }
+                });
+                
+                if (countA === 0) return null;
+                const amplitude = sumA / countA;
+
+                return { A: amplitude, B: frequency, C: horizontalShift, D: verticalShift };
+            };
+
+            /**
+             * Calculates R-squared for a tangent fit.
+             */
+            const calculateRSquaredTangent = (data, params) => {
+                 if (!params) return -Infinity;
+                const yMean = data.reduce((sum, p) => sum + p.y, 0) / data.length;
+                const predict = (x) => params.A * Math.tan(params.B * x + params.C) + params.D;
+                
+                let ssr = 0, sst = 0, validPoints = 0;
+                data.forEach(p => {
+                    const predictedY = predict(p.x);
+                    if (isFinite(predictedY)) {
+                        ssr += Math.pow(p.y - predictedY, 2);
+                        sst += Math.pow(p.y - yMean, 2);
+                        validPoints++;
+                    }
+                });
+                if (validPoints < 5 || sst === 0) return -Infinity;
+                return 1 - (ssr / sst);
+            };
+
+            /**
+             * Formats the tangent parameters into a readable string.
+             */
+            const formatTangent = (params) => {
+                if (!params) return null;
+                let { A, B, C, D } = params;
+
+                let result = '';
+                if (Math.abs(A - 1) > 1e-2) {
+                    result += A.toFixed(2) + '*';
+                }
+
+                let tanInner = '';
+                if (Math.abs(B - 1) > 1e-2) {
+                    tanInner += B.toFixed(2) + '*x';
+                } else {
+                    tanInner += 'x';
+                }
+                
+                if (Math.abs(C) > 1e-2) {
+                    tanInner += (C > 0 ? ' + ' : ' - ') + Math.abs(C).toFixed(2);
+                }
+                result += `tan(${tanInner})`;
+
+                if (Math.abs(D) > 1e-2) {
+                    result += (D > 0 ? ' + ' : ' - ') + Math.abs(D).toFixed(2);
+                }
+
+                return result;
+            };
+
+            /**
              * Formats the trigonometric parameters into a readable string.
              */
             const formatTrigonometric = (params) => {
@@ -846,7 +961,6 @@
                 
                 if (parts.length === 0) return '0.00';
                 
-                // Post-process for cleaner output like "+ -5" -> "- 5"
                 let result = parts.join(' ').replace(/\+ -/g, '-');
                 if (result.startsWith('+ ')) result = result.substring(2);
 
@@ -906,6 +1020,22 @@
                             }
                         }
 
+                        // --- Tangent Analysis ---
+                        const tangentParams = tangentRegression(lines, allPoints);
+                        if (tangentParams) {
+                            let rSquared = calculateRSquaredTangent(allPoints, tangentParams);
+                            // Boost if it's multiple increasing lines, a strong indicator of tan
+                            const areLinesIncreasing = lines.every(line => {
+                                if (line.length < 2) return false;
+                                const slope = (line[line.length-1].y - line[0].y) / (line[line.length-1].x - line[0].x);
+                                return slope > 0;
+                            });
+                            if (lines.length > 1 && areLinesIncreasing) {
+                                rSquared += 0.15;
+                            }
+                            fits.push({ type: 'tangent', rSquared, params: tangentParams });
+                        }
+
                         // --- Circle Analysis ---
                         const firstLine = lines[0] || [];
                         const startPoint = firstLine[0];
@@ -947,6 +1077,10 @@
                                 formulaString = formatReciprocal(bestFit.params);
                                 finalAnalyzedFormula = { type: 'standard', formula: formulaString, params: bestFit.params };
                                 break;
+                            case 'tangent':
+                                formulaString = formatTangent(bestFit.params);
+                                finalAnalyzedFormula = { type: 'standard', formula: formulaString, params: bestFit.params };
+                                break;
                             case 'circle':
                                 formulaString = formatCircle(bestFit.params);
                                 finalAnalyzedFormula = { type: 'circle', formula: formulaString, params: bestFit.params };
@@ -973,6 +1107,44 @@
                     }
                 }, 50);
             };
+
+            const calculateOptimalRange = (func, currentXRange) => {
+                const { min: minX, max: maxX } = currentXRange;
+                if (maxX <= minX) return null;
+
+                let minY = Infinity;
+                let maxY = -Infinity;
+                const steps = 500;
+                let validPointsFound = false;
+
+                for (let i = 0; i <= steps; i++) {
+                    const x = minX + (i / steps) * (maxX - minX);
+                    try {
+                        const y = func(x);
+                        if (isFinite(y)) {
+                            if (y < minY) minY = y;
+                            if (y > maxY) maxY = y;
+                            validPointsFound = true;
+                        }
+                    } catch (e) { /* ignore */ }
+                }
+
+                if (!validPointsFound) return null;
+
+                let finalMin = Math.min(minX, minY);
+                let finalMax = Math.max(maxX, maxY);
+
+                if (finalMin === finalMax) {
+                    finalMin -= 1;
+                    finalMax += 1;
+                }
+
+                const padding = (finalMax - finalMin) * 0.1;
+                finalMin -= padding;
+                finalMax += padding;
+
+                return { min: finalMin, max: finalMax };
+            };
             
             // --- Event Listeners Setup ---
             canvas.addEventListener('mousedown', startDrawing);
@@ -988,7 +1160,20 @@
             
             drawFuncBtn.addEventListener('click', () => {
                 const formulaText = functionInput.value.trim();
+                
                 if (formulaText) {
+                    const func = sanitizeAndCreateFunction(formulaText);
+                    if (!func) {
+                        resultEl.innerHTML = `<span class="placeholder" style="font-size: 0.8rem; color: #d9534f;">Invalid function syntax.</span>`;
+                        return;
+                    }
+                    
+                    const newRange = calculateOptimalRange(func, getRange());
+                    if (newRange) {
+                        minRangeInput.value = newRange.min.toFixed(1);
+                        maxRangeInput.value = newRange.max.toFixed(1);
+                    }
+                    
                     formulaToDraw = { type: 'standard', formula: formulaText };
                 } else if (analyzedFormula) {
                     formulaToDraw = analyzedFormula;
