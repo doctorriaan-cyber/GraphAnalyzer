@@ -146,6 +146,40 @@
         #clearBtn:hover {
             background-color: #e2e6ea;
         }
+        .force-controls-container {
+            margin-top: 1.5rem;
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+        }
+        .force-controls-container h3 {
+            margin: 0 0 0.5rem 0;
+            font-size: 0.9rem;
+            color: #555;
+            font-weight: 600;
+        }
+        .force-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            justify-content: center;
+        }
+        .force-btn {
+            padding: 0.4rem 0.8rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+            background-color: #f8f9fa;
+            color: #333;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            box-shadow: none;
+        }
+        .force-btn.active {
+            background-color: #007bff;
+            color: white;
+            border-color: #007bff;
+            font-weight: 600;
+        }
         #result-container {
             margin-top: 1rem;
             padding: 0.5rem 1rem;
@@ -211,6 +245,19 @@
             <button id="drawFuncBtn" disabled>Draw Function</button>
             <button id="clearBtn">Clear</button>
         </div>
+        <div class="force-controls-container">
+            <h3>Force type of graph</h3>
+            <div class="force-controls">
+                <button class="force-btn active" data-type="auto">Auto</button>
+                <button class="force-btn" data-type="line">Line</button>
+                <button class="force-btn" data-type="quadratic">Quadratic</button>
+                <button class="force-btn" data-type="cubic">Cubic</button>
+                <button class="force-btn" data-type="exponential">Exponential</button>
+                <button class="force-btn" data-type="reciprocal">Reciprocal</button>
+                <button class="force-btn" data-type="circle">Circle</button>
+                <button class="force-btn" data-type="trigonometric">Trigonometry</button>
+            </div>
+        </div>
         <div id="result-container">
             <div id="result">
                 <span class="placeholder">Draw a function and click "Analyze"</span>
@@ -230,6 +277,7 @@
             const maxRangeInput = document.getElementById('maxRange');
             const updateRangeBtn = document.getElementById('updateRangeBtn');
             const functionInput = document.getElementById('functionInput');
+            const forceBtns = document.querySelectorAll('.force-btn');
             const ctx = canvas.getContext('2d');
             
             const container = document.querySelector('.container');
@@ -239,8 +287,9 @@
             const resultContainer = document.getElementById('result-container');
             const inputPrompt = document.querySelector('.input-prompt');
             const functionInputContainer = document.querySelector('.function-input-container');
+            const forceControlsContainer = document.querySelector('.force-controls-container');
 
-            if (!canvas || !ctx || !analyzeBtn || !clearBtn || !drawFuncBtn || !resultEl || !minRangeInput || !maxRangeInput || !updateRangeBtn || !functionInput || !container || !h1 || !rangeControls || !controls || !resultContainer || !inputPrompt || !functionInputContainer) {
+            if (!canvas || !ctx || !analyzeBtn || !clearBtn || !drawFuncBtn || !resultEl || !minRangeInput || !maxRangeInput || !updateRangeBtn || !functionInput || !container || !h1 || !rangeControls || !controls || !resultContainer || !inputPrompt || !functionInputContainer || !forceControlsContainer) {
                 console.error('Essential DOM elements not found.');
                 return;
             }
@@ -250,9 +299,9 @@
             const calculateCanvasSize = () => {
                  const verticalSpacing = 
                     remToPx(1) + remToPx(1) + remToPx(0.5) + remToPx(1) + remToPx(0.5) + 
-                    remToPx(1) + remToPx(1) + remToPx(1) + remToPx(1); 
+                    remToPx(1) + remToPx(1.5) + remToPx(1) + remToPx(1); 
                 const otherElementsHeight = h1.offsetHeight + rangeControls.offsetHeight + updateRangeBtn.offsetHeight + inputPrompt.offsetHeight +
-                    functionInputContainer.offsetHeight + controls.offsetHeight + resultContainer.offsetHeight;
+                    functionInputContainer.offsetHeight + controls.offsetHeight + forceControlsContainer.offsetHeight + resultContainer.offsetHeight;
                 const totalNonCanvasHeight = otherElementsHeight + verticalSpacing;
                 const availableHeight = window.innerHeight - totalNonCanvasHeight;
                 const availableWidth = container.clientWidth;
@@ -272,6 +321,7 @@
             let lines = [];
             let analyzedFormulas = [];
             let formulasToDraw = [];
+            let forceGraphType = 'auto';
             const plotColors = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8'];
 
             // --- Coordinate Conversion ---
@@ -383,6 +433,11 @@
                 minRangeInput.value = '-8'; maxRangeInput.value = '8';
                 resultEl.innerHTML = `<span class="placeholder">Draw a function and click "Analyze"</span>`;
                 analyzeBtn.disabled = false; analyzeBtn.textContent = "Analyze"; drawFuncBtn.disabled = true;
+                forceGraphType = 'auto';
+                forceBtns.forEach(btn => {
+                    btn.classList.remove('active');
+                    if (btn.dataset.type === 'auto') btn.classList.add('active');
+                });
                 redrawScene();
             };
             
@@ -409,9 +464,11 @@
                 for (let i = n - 1; i > -1; i--) { solution[i] = matrix[i][n] / matrix[i][i]; for (let k = i - 1; k > -1; k--) matrix[k][n] -= matrix[k][i] * solution[i]; }
                 return solution;
             };
-            // --- ALL REGRESSION AND FORMATTING FUNCTIONS (polynomialRegression, formatPolynomial, etc.) ---
+            // --- ALL REGRESSION AND FORMATTING FUNCTIONS ---
             const polynomialRegression = (data, degree) => { const n = degree + 1; const matrix = Array.from({ length: n }, () => new Array(n + 1).fill(0)); for (let i = 0; i < n; i++) { for (let j = 0; j < n; j++) { matrix[i][j] = data.reduce((sum, p) => sum + Math.pow(p.x, i + j), 0); } matrix[i][n] = data.reduce((sum, p) => sum + p.y * Math.pow(p.x, i), 0); } return solveLinearSystem(matrix); };
             const calculateRSquared = (data, coefficients) => { const yMean = data.reduce((sum, p) => sum + p.y, 0) / data.length; const predict = (x) => coefficients.reduce((sum, c, i) => sum + c * Math.pow(x, i), 0); const ssr = data.reduce((sum, p) => sum + Math.pow(p.y - predict(p.x), 2), 0); const sst = data.reduce((sum, p) => sum + Math.pow(p.y - yMean, 2), 0); return sst === 0 ? 1 : 1 - (ssr / sst); };
+            const exponentialRegression = (data) => { const logData = data.filter(p => p.y > 0).map(p => ({ x: p.x, y: Math.log(p.y) })); if (logData.length < 2) return null; const coeffs = polynomialRegression(logData, 1); if (!coeffs || coeffs.length < 2) return null; const intercept = coeffs[0], slope = coeffs[1]; return { a: Math.exp(intercept), b: slope }; };
+            const calculateRSquaredExponential = (data, params) => { if (!params) return -Infinity; const yMean = data.reduce((sum, p) => sum + p.y, 0) / data.length; const predict = (x) => params.a * Math.exp(params.b * x); let ssr = 0, sst = 0; data.forEach(p => { const predictedY = predict(p.x); if (isFinite(predictedY)) { ssr += Math.pow(p.y - predictedY, 2); sst += Math.pow(p.y - yMean, 2); } }); if (sst === 0) return 1; return 1 - (ssr / sst); };
             const trigonometricRegression = (data) => { if (data.length < 5) return null; let yMin = Infinity, yMax = -Infinity; data.forEach(p => { yMin = Math.min(yMin, p.y); yMax = Math.max(yMax, p.y); }); const amplitude = (yMax - yMin) / 2, verticalShift = (yMax + yMin) / 2; if (amplitude < (yMax - yMin) * 0.1) return null; const crossings = []; for (let i = 1; i < data.length; i++) { const p1 = data[i - 1], p2 = data[i]; if ((p1.y - verticalShift) * (p2.y - verticalShift) < 0) crossings.push({ x: p1.x + (p2.x - p1.x) * (verticalShift - p1.y) / (p2.y - p1.y) }); } if (crossings.length < 2) return null; const periods = []; for (let i = 2; i < crossings.length; i++) periods.push(2 * Math.abs(crossings[i].x - crossings[i - 2].x)); if (periods.length === 0 && crossings.length >= 2) { const numHalfPeriods = crossings.length - 1; const totalDistance = crossings[crossings.length - 1].x - crossings[0].x; if (numHalfPeriods > 0 && totalDistance > 0) periods.push(2 * (totalDistance / numHalfPeriods)); } if (periods.length === 0) return null; const avgPeriod = periods.reduce((sum, p) => sum + p, 0) / periods.length; if (avgPeriod <= 1e-6) return null; const frequency = (2 * Math.PI) / avgPeriod; const p0 = data[0]; const safeAmplitude = Math.max(amplitude, 1e-6); const initialVal = Math.max(-1, Math.min(1, (p0.y - verticalShift) / safeAmplitude)); const initialAngle = Math.asin(initialVal); const phaseShift1 = initialAngle - frequency * p0.x, phaseShift2 = Math.PI - initialAngle - frequency * p0.x; const p1 = data[1] || data[0]; const err1 = Math.abs((amplitude * Math.sin(frequency * p1.x + phaseShift1) + verticalShift) - p1.y); const err2 = Math.abs((amplitude * Math.sin(frequency * p1.x + phaseShift2) + verticalShift) - p1.y); const phaseShift = err1 < err2 ? phaseShift1 : phaseShift2; return { A: amplitude, B: frequency, C: phaseShift, D: verticalShift }; };
             const calculateRSquaredTrig = (data, params) => { if (!params) return -Infinity; const yMean = data.reduce((sum, p) => sum + p.y, 0) / data.length; const predict = (x) => params.A * Math.sin(params.B * x + params.C) + params.D; const ssr = data.reduce((sum, p) => sum + Math.pow(p.y - predict(p.x), 2), 0); const sst = data.reduce((sum, p) => sum + Math.pow(p.y - yMean, 2), 0); return sst === 0 ? 1 : 1 - (ssr / sst); };
             const reciprocalRegression = (data) => { let sumXY = 0, validPoints = 0; data.forEach(p => { if (Math.abs(p.x) > 1e-6) { sumXY += p.x * p.y; validPoints++; } }); if (validPoints < 5) return null; return { A: sumXY / validPoints }; };
@@ -422,6 +479,8 @@
             const calculateRSquaredTangent = (data, params) => { if (!params) return -Infinity; const yMean = data.reduce((sum, p) => sum + p.y, 0) / data.length; const predict = (x) => params.A * Math.tan(params.B * x + params.C) + params.D; let ssr = 0, sst = 0, validPoints = 0; data.forEach(p => { const predictedY = predict(p.x); if (isFinite(predictedY)) { ssr += Math.pow(p.y - predictedY, 2); sst += Math.pow(p.y - yMean, 2); validPoints++; } }); if (validPoints < 5 || sst === 0) return -Infinity; return 1 - (ssr / sst); };
             const ellipseRegression = (data) => { if (data.length < 5) return null; const M = data.map(p => [p.x * p.x, p.x * p.y, p.y * p.y, p.x, p.y]); const MT = matrix_transpose(M); const MTM = matrix_multiply(MT, M); const MTb = new Array(5).fill(0); for (let i = 0; i < 5; i++) for (let j = 0; j < data.length; j++) MTb[i] -= MT[i][j]; const matrixForSolver = MTM.map((row, i) => [...row, MTb[i]]); const coeffs = solveLinearSystem(matrixForSolver); if (!coeffs || coeffs.some(isNaN)) return null; const [A, B, C, D, E] = coeffs, F = -1; const det = B * B - 4 * A * C; if (det >= 0) return null; const h = (2 * C * D - B * E) / det, k = (2 * A * E - B * D) / det; const angle = 0.5 * Math.atan2(B, A - C); const term = 2 * (A * h * h + B * h * k + C * k * k - F); const common = Math.sqrt(Math.pow(A - C, 2) + B * B); const a_sq = term / (A + C + common), b_sq = term / (A + C - common); if (a_sq <= 0 || b_sq <= 0) return null; return { h, k, a: Math.sqrt(a_sq), b: Math.sqrt(b_sq), angle, coeffs: [A, B, C, D, E, F] }; };
             const calculateRSquaredEllipse = (data, params) => { if (!params) return -Infinity; const { h, k, a, b, angle } = params; const cos = Math.cos(angle), sin = Math.sin(angle); const predictRadius = (theta) => (a * b) / Math.sqrt(Math.pow(b * Math.cos(theta), 2) + Math.pow(a * Math.sin(theta), 2)); let ssr = 0; data.forEach(p => { const dx = p.x - h, dy = p.y - k; const pointAngle = Math.atan2(dy, dx), rotatedAngle = pointAngle - angle, expectedR = predictRadius(rotatedAngle), actualR = Math.hypot(dx, dy); ssr += Math.pow(actualR - expectedR, 2); }); const xMean = data.reduce((sum, p) => sum + p.x, 0) / data.length; const yMean = data.reduce((sum, p) => sum + p.y, 0) / data.length; const sst = data.reduce((sum, p) => sum + Math.pow(p.x - xMean, 2) + Math.pow(p.y - yMean, 2), 0); if (sst === 0) return 1; return 1 - (ssr / sst); };
+            
+            const formatExponential = (params) => !params ? null : `${params.a.toFixed(2)} * exp(${params.b.toFixed(2)}*x)`;
             const formatEllipse = (params) => { if (!params) return null; const { h, k, a, b, angle } = params; const angleDeg = (angle * 180 / Math.PI).toFixed(1); const r1 = Math.max(a, b), r2 = Math.min(a, b); return `Ellipse: center(${h.toFixed(2)}, ${k.toFixed(2)}), radii(${r1.toFixed(2)}, ${r2.toFixed(2)}), angle ${angleDeg}°`; };
             const formatTangent = (params) => { if (!params) return null; let { A, B, C, D } = params, result = '', tanInner = ''; if (Math.abs(A - 1) > 1e-2) result += A.toFixed(2) + '*'; if (Math.abs(B - 1) > 1e-2) tanInner += B.toFixed(2) + '*x'; else tanInner += 'x'; if (Math.abs(C) > 1e-2) tanInner += (C > 0 ? ' + ' : ' - ') + Math.abs(C).toFixed(2); result += `tan(${tanInner})`; if (Math.abs(D) > 1e-2) result += (D > 0 ? ' + ' : ' - ') + Math.abs(D).toFixed(2); return result; };
             const formatTrigonometric = (params) => { if (!params) return null; let { A, B, C, D } = params; if (A < 0) { A = -A; C += Math.PI; } let result = '', sinInner = ''; if (Math.abs(A - 1) > 1e-2) result += A.toFixed(2) + '*'; if (Math.abs(B - 1) > 1e-2) sinInner += B.toFixed(2) + '*x'; else sinInner += 'x'; if (Math.abs(C) > 1e-2) sinInner += (C > 0 ? ' + ' : ' - ') + Math.abs(C).toFixed(2); result += `sin(${sinInner})`; if (Math.abs(D) > 1e-2) result += (D > 0 ? ' + ' : ' - ') + Math.abs(D).toFixed(2); return result; };
@@ -435,6 +494,7 @@
                 let formulaInfo = { type: fit.type, params: fit.params };
                 switch(fit.type) {
                     case 'polynomial':    formulaString = formatPolynomial(fit.coefficients); formulaInfo.formula = formulaString; formulaInfo.params = { coefficients: fit.coefficients }; break;
+                    case 'exponential':   formulaString = formatExponential(fit.params);      formulaInfo.formula = formulaString; break;
                     case 'trigonometric': formulaString = formatTrigonometric(fit.params);    formulaInfo.formula = formulaString; break;
                     case 'reciprocal':    formulaString = formatReciprocal(fit.params);     formulaInfo.formula = formulaString; break;
                     case 'tangent':       formulaString = formatTangent(fit.params);        formulaInfo.formula = formulaString; break;
@@ -476,33 +536,49 @@
                 const xMin = Math.min(...segmentPoints.map(p => p.x));
                 const xMax = Math.max(...segmentPoints.map(p => p.x));
                 const domain = { xMin, xMax };
-
                 let fits = [];
                 
-                let bestPolyFit = { rSquared: -Infinity };
-                for (let degree = 1; degree <= 4; degree++) {
-                    const coeffs = polynomialRegression(segmentPoints, degree);
-                    if (coeffs) {
-                        const rSquared = calculateRSquared(segmentPoints, coeffs) - (degree * 0.01);
-                        if (rSquared > bestPolyFit.rSquared) bestPolyFit = { rSquared, coefficients: coeffs };
+                if (forceGraphType === 'auto' || forceGraphType === 'line' || forceGraphType === 'quadratic' || forceGraphType === 'cubic') {
+                    let bestPolyFit = { rSquared: -Infinity };
+                    const minDegree = forceGraphType === 'line' ? 1 : (forceGraphType === 'quadratic' ? 2 : (forceGraphType === 'cubic' ? 3 : 1));
+                    const maxDegree = forceGraphType === 'line' ? 1 : (forceGraphType === 'quadratic' ? 2 : (forceGraphType === 'cubic' ? 3 : 4));
+                    for (let degree = minDegree; degree <= maxDegree; degree++) {
+                        const coeffs = polynomialRegression(segmentPoints, degree);
+                        if (coeffs) {
+                            const rSquared = calculateRSquared(segmentPoints, coeffs) - (forceGraphType === 'auto' ? (degree * 0.01) : 0);
+                            if (rSquared > bestPolyFit.rSquared) bestPolyFit = { rSquared, coefficients: coeffs };
+                        }
                     }
+                    if (bestPolyFit.coefficients) fits.push({ type: 'polynomial', ...bestPolyFit });
                 }
-                if (bestPolyFit.coefficients) fits.push({ type: 'polynomial', ...bestPolyFit });
-                
-                const trigParams = trigonometricRegression(segmentPoints);
-                if (trigParams) fits.push({ type: 'trigonometric', rSquared: calculateRSquaredTrig(segmentPoints, trigParams), params: trigParams });
-                
-                const tangentParams = tangentRegression([segmentPoints], segmentPoints);
-                if (tangentParams) fits.push({ type: 'tangent', rSquared: calculateRSquaredTangent(segmentPoints, tangentParams), params: tangentParams });
-                
-                const reciprocalParams = reciprocalRegression(segmentPoints);
-                if (reciprocalParams) fits.push({ type: 'reciprocal', rSquared: calculateRSquaredReciprocal(segmentPoints, reciprocalParams), params: reciprocalParams });
-                
-                const circleParams = circleRegression(segmentPoints);
-                if (circleParams) fits.push({ type: 'circle', rSquared: calculateRSquaredCircle(segmentPoints, circleParams) + (isClosedLoop ? 0.1 : 0), params: circleParams });
 
-                const ellipseParams = ellipseRegression(segmentPoints);
-                if (ellipseParams) fits.push({ type: 'ellipse', rSquared: calculateRSquaredEllipse(segmentPoints, ellipseParams) + (isClosedLoop ? 0.15 : 0), params: ellipseParams });
+                if (forceGraphType === 'auto' || forceGraphType === 'exponential') {
+                    const expParams = exponentialRegression(segmentPoints);
+                    if (expParams) fits.push({ type: 'exponential', rSquared: calculateRSquaredExponential(segmentPoints, expParams), params: expParams });
+                }
+
+                if (forceGraphType === 'auto' || forceGraphType === 'trigonometric') {
+                    const trigParams = trigonometricRegression(segmentPoints);
+                    if (trigParams) fits.push({ type: 'trigonometric', rSquared: calculateRSquaredTrig(segmentPoints, trigParams), params: trigParams });
+                    
+                    const tangentParams = tangentRegression([segmentPoints], segmentPoints);
+                    if (tangentParams) fits.push({ type: 'tangent', rSquared: calculateRSquaredTangent(segmentPoints, tangentParams), params: tangentParams });
+                }
+                
+                if (forceGraphType === 'auto' || forceGraphType === 'reciprocal') {
+                    const reciprocalParams = reciprocalRegression(segmentPoints);
+                    if (reciprocalParams) fits.push({ type: 'reciprocal', rSquared: calculateRSquaredReciprocal(segmentPoints, reciprocalParams), params: reciprocalParams });
+                }
+
+                if (forceGraphType === 'auto' || forceGraphType === 'circle') {
+                    const circleParams = circleRegression(segmentPoints);
+                    if (circleParams) fits.push({ type: 'circle', rSquared: calculateRSquaredCircle(segmentPoints, circleParams) + (isClosedLoop ? 0.1 : 0), params: circleParams });
+                }
+
+                if (forceGraphType === 'auto' || forceGraphType === 'ellipse') {
+                    const ellipseParams = ellipseRegression(segmentPoints);
+                    if (ellipseParams) fits.push({ type: 'ellipse', rSquared: calculateRSquaredEllipse(segmentPoints, ellipseParams) + (isClosedLoop ? 0.15 : 0), params: ellipseParams });
+                }
 
                 if (fits.length === 0) return null;
                 fits.sort((a, b) => b.rSquared - a.rSquared);
@@ -524,40 +600,54 @@
                 
                 setTimeout(() => {
                     try {
-                        // 1. First, try to fit a single function to the ENTIRE drawing
-                        resultEl.innerHTML = `<span class="placeholder">Analyzing whole drawing...</span>`;
                         const startPointGlobal = allPoints[0], endPointGlobal = allPoints[allPoints.length - 1];
                         const isClosedLoopGlobal = lines.length === 1 && Math.hypot(startPointGlobal.x - endPointGlobal.x, startPointGlobal.y - endPointGlobal.y) < (getRange().max - getRange().min) * 0.2;
-                        const singleBestFit = findBestFitForSegment(allPoints, isClosedLoopGlobal);
                         
-                        const HIGH_FIT_THRESHOLD = 0.95;
-
-                        // 2. If the single fit is good enough, use it and stop.
-                        if (singleBestFit && singleBestFit.rSquared > HIGH_FIT_THRESHOLD) {
-                            const formulaInfo = formatFormula(singleBestFit);
-                            if (formulaInfo) {
-                                if (singleBestFit.domain) formulaInfo.domain = singleBestFit.domain;
-                                analyzedFormulas.push(formulaInfo);
-                            }
+                        if (forceGraphType !== 'auto') {
+                             const segments = (forceGraphType === 'circle' || forceGraphType === 'ellipse') ? [allPoints] : segmentDrawing(lines);
+                             const topSegments = segments.sort((a, b) => b.length - a.length).slice(0, 5);
+                             topSegments.forEach(segment => {
+                                 const bestFit = findBestFitForSegment(segment, isClosedLoopGlobal);
+                                 if (bestFit) {
+                                     const formulaInfo = formatFormula(bestFit);
+                                     if(formulaInfo) {
+                                        formulaInfo.domain = bestFit.domain;
+                                        analyzedFormulas.push(formulaInfo);
+                                     }
+                                 }
+                             });
                         } else {
-                            // 3. If not, proceed with segmentation
-                            resultEl.innerHTML = `<span class="placeholder">Single fit insufficient. Segmenting...</span>`;
-                            const segments = segmentDrawing(lines);
-                            const topSegments = segments.sort((a, b) => b.length - a.length).slice(0, 5);
+                            const singleBestFit = findBestFitForSegment(allPoints, isClosedLoopGlobal);
+                            const HIGH_FIT_THRESHOLD = 0.95;
 
-                            topSegments.forEach(segment => {
-                                const startPoint = segment[0], endPoint = segment[segment.length - 1];
-                                const isClosedLoop = lines.length === 1 && segments.length === 1 && startPoint && endPoint && Math.hypot(startPoint.x - endPoint.x, startPoint.y - endPoint.y) < (getRange().max - getRange().min) * 0.2;
-                                const bestFit = findBestFitForSegment(segment, isClosedLoop);
+                            if (singleBestFit && singleBestFit.rSquared > HIGH_FIT_THRESHOLD) {
+                                const formulaInfo = formatFormula(singleBestFit);
+                                if (formulaInfo) {
+                                    formulaInfo.domain = singleBestFit.domain;
+                                    analyzedFormulas.push(formulaInfo);
+                                }
+                            } else {
+                                const segments = segmentDrawing(lines);
+                                const topSegments = segments.sort((a, b) => b.length - a.length).slice(0, 5);
+                                topSegments.forEach(segment => {
+                                    const bestFit = findBestFitForSegment(segment, isClosedLoopGlobal);
+                                    if (bestFit) {
+                                        const formulaInfo = formatFormula(bestFit);
+                                        if(formulaInfo) {
+                                            formulaInfo.domain = bestFit.domain;
+                                            analyzedFormulas.push(formulaInfo);
+                                        }
+                                    }
+                                });
                                 
-                                if (bestFit && bestFit.rSquared > 0.8) { // Quality threshold for segments
-                                    const formulaInfo = formatFormula(bestFit);
-                                    if(formulaInfo) {
-                                        if (bestFit.domain) formulaInfo.domain = bestFit.domain;
+                                if (analyzedFormulas.length === 0 && singleBestFit) {
+                                    const formulaInfo = formatFormula(singleBestFit);
+                                    if (formulaInfo) {
+                                        formulaInfo.domain = singleBestFit.domain;
                                         analyzedFormulas.push(formulaInfo);
                                     }
                                 }
-                            });
+                            }
                         }
 
                         if (analyzedFormulas.length === 0) throw new Error("Could not find any high-quality function fits.");
@@ -565,14 +655,13 @@
                         let resultHTML = '<ol>';
                         analyzedFormulas.forEach((info, index) => {
                             const color = plotColors[index % plotColors.length];
-                            const prefix = (info.type === 'polynomial' || info.type === 'reciprocal' || info.type === 'tangent' || info.type === 'trigonometric') ? 'f(x) &approx; ' : '';
+                            const prefix = (info.type === 'polynomial' || info.type === 'reciprocal' || info.type === 'tangent' || info.type === 'trigonometric' || info.type === 'exponential') ? 'f(x) &approx; ' : '';
                             resultHTML += `<li><span class="color-swatch" style="background-color: ${color};"></span><strong>${prefix}${info.formula}</strong></li>`;
                         });
                         resultHTML += '</ol>';
                         resultEl.innerHTML = resultHTML;
                         
-                        // Populate function input if it's a single, simple function
-                        if (analyzedFormulas.length === 1 && analyzedFormulas[0].type !== 'circle' && analyzedFormulas[0].type !== 'ellipse') {
+                        if (analyzedFormulas.length === 1 && ['polynomial', 'trigonometric', 'tangent', 'reciprocal', 'exponential'].includes(analyzedFormulas[0].type)) {
                            functionInput.value = analyzedFormulas[0].formula;
                         } else {
                            functionInput.value = '';
@@ -634,6 +723,14 @@
                     formulasToDraw = analyzedFormulas;
                 }
                 redrawScene();
+            });
+            
+            forceBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    forceBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    forceGraphType = btn.dataset.type;
+                });
             });
 
             canvas.addEventListener('mousedown', startDrawing); canvas.addEventListener('mousemove', draw);
