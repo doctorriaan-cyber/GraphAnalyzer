@@ -364,10 +364,14 @@
                     .replace(/^f\(x\)\s*=\s*/i, '')
                     .replace(/\^/g, '**');
 
-                const mathFunctions = ['sin', 'cos', 'tan', 'sqrt', 'exp', 'log', 'abs', 'PI', 'E'];
-                mathFunctions.forEach(func => {
-                    const regex = new RegExp(`\\b${func}\\b`, 'gi');
-                    sanitizedFormula = sanitizedFormula.replace(regex, `Math.${func.toUpperCase()}`);
+                const mathKeywords = ['sin', 'cos', 'tan', 'sqrt', 'exp', 'log', 'abs', 'PI', 'E'];
+                mathKeywords.forEach(keyword => {
+                    const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
+                    // Constants are uppercase, functions are lowercase in Math object
+                    const replacement = (keyword === 'PI' || keyword === 'E') 
+                        ? `Math.${keyword.toUpperCase()}` 
+                        : `Math.${keyword.toLowerCase()}`;
+                    sanitizedFormula = sanitizedFormula.replace(regex, replacement);
                 });
 
                 sanitizedFormula = sanitizedFormula.replace(/(\d)([a-zA-Z(])/g, '$1*$2');
