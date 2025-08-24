@@ -161,9 +161,9 @@
         <h1>Graph Analyzer</h1>
         <div class="range-controls">
             <label for="minRange">Min:</label>
-            <input type="number" id="minRange" value="0" step="1">
+            <input type="number" id="minRange" value="-8" step="1">
             <label for="maxRange">Max:</label>
-            <input type="number" id="maxRange" value="10" step="1">
+            <input type="number" id="maxRange" value="8" step="1">
         </div>
         <button id="updateRangeBtn">Update Range</button>
         <canvas id="drawCanvas"></canvas>
@@ -248,8 +248,8 @@
 
             // --- Coordinate Conversion ---
             const getRange = () => {
-                const min = parseFloat(minRangeInput.value) || 0;
-                const max = parseFloat(maxRangeInput.value) || 10;
+                const min = parseFloat(minRangeInput.value) || -8;
+                const max = parseFloat(maxRangeInput.value) || 8;
                 return { min, max };
             };
 
@@ -412,8 +412,8 @@
                 lines = [];
                 currentFormula = null;
                 isFormulaDrawn = false;
-                minRangeInput.value = '0';
-                maxRangeInput.value = '10';
+                minRangeInput.value = '-8';
+                maxRangeInput.value = '8';
                 resultEl.innerHTML = `<span class="placeholder">Draw a function and click "Analyze"</span>`;
                 analyzeBtn.disabled = false;
                 analyzeBtn.textContent = "Analyze";
