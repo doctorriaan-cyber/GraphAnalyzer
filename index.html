@@ -272,8 +272,8 @@
             // App State
             let isDrawing = false;
             let lines = []; // Array of arrays to hold disconnected lines
-            let analyzedFormula = null; // Stores formula from analysis
-            let formulaToDraw = null; // Stores formula to be actively drawn
+            let analyzedFormula = null; // Stores formula object from analysis
+            let formulaToDraw = null; // Stores formula object to be actively drawn
 
             // --- Coordinate Conversion ---
             const getRange = () => {
@@ -358,6 +358,20 @@
                 });
             };
 
+            const drawCircleOnCanvas = (params) => {
+                 if (!params) return;
+                 const { h, k, r } = params;
+                 const centerCanvas = graphToCanvas(h, k);
+                 const { min, max } = getRange();
+                 const radiusCanvas = (r / (max - min)) * baseSize;
+
+                 ctx.beginPath();
+                 ctx.strokeStyle = '#007bff';
+                 ctx.lineWidth = 2;
+                 ctx.arc(centerCanvas.x, centerCanvas.y, radiusCanvas, 0, 2 * Math.PI);
+                 ctx.stroke();
+            };
+
             const drawFormulaOnCanvas = (formula) => {
                 if (!formula) return;
                 
@@ -419,7 +433,11 @@
                 drawAxes();
                 drawUserPath();
                 if (formulaToDraw) {
-                    drawFormulaOnCanvas(formulaToDraw);
+                    if (formulaToDraw.type === 'circle') {
+                        drawCircleOnCanvas(formulaToDraw.params);
+                    } else {
+                        drawFormulaOnCanvas(formulaToDraw.formula);
+                    }
                 }
             };
 
@@ -560,8 +578,6 @@
                 const amplitude = (yMax - yMin) / 2;
                 const verticalShift = (yMax + yMin) / 2;
 
-                if (amplitude < 0.1 * (getRange().max - getRange().min)) return null;
-
                 const crossings = [];
                 for (let i = 1; i < data.length; i++) {
                     const p1 = data[i - 1];
@@ -576,10 +592,8 @@
                 if (crossings.length < 2) return null;
 
                 const periods = [];
-                for (let i = 1; i < crossings.length; i++) {
-                    if (crossings[i].slope > 0 && crossings[i-1].slope < 0 || crossings[i].slope < 0 && crossings[i-1].slope > 0) {
-                         periods.push(2 * Math.abs(crossings[i].x - crossings[i-1].x));
-                    }
+                for (let i = 2; i < crossings.length; i++) {
+                     periods.push(2 * Math.abs(crossings[i].x - crossings[i-2].x));
                 }
                 if (periods.length === 0 && crossings.length >= 2) {
                    const numHalfPeriods = crossings.length - 1;
@@ -596,23 +610,21 @@
                 
                 const frequency = (2 * Math.PI) / avgPeriod;
 
-                let firstUpwardCrossingX = null;
-                for (const cross of crossings) {
-                    if (cross.slope > 0) {
-                        firstUpwardCrossingX = cross.x;
-                        break;
-                    }
-                }
+                // Improved Phase Shift Calculation
+                const p0 = data[0];
+                if (amplitude < 1e-6) return null; // Avoid division by zero
                 
-                let phaseShift = 0;
-                if (firstUpwardCrossingX !== null) {
-                    phaseShift = -frequency * firstUpwardCrossingX;
-                } else {
-                    const p0 = data[0];
-                    if (amplitude > 1e-6) {
-                        phaseShift = Math.asin((p0.y - verticalShift) / amplitude) - frequency * p0.x;
-                    }
-                }
+                const initialAngle = Math.asin((p0.y - verticalShift) / amplitude);
+
+                // Two possible starting points. Test which one fits better with the next point.
+                const phaseShift1 = initialAngle - frequency * p0.x;
+                const phaseShift2 = Math.PI - initialAngle - frequency * p0.x;
+
+                const p1 = data[1] || data[0];
+                const err1 = Math.abs( (amplitude * Math.sin(frequency * p1.x + phaseShift1) + verticalShift) - p1.y );
+                const err2 = Math.abs( (amplitude * Math.sin(frequency * p1.x + phaseShift2) + verticalShift) - p1.y );
+
+                const phaseShift = err1 < err2 ? phaseShift1 : phaseShift2;
 
                 return { A: amplitude, B: frequency, C: phaseShift, D: verticalShift };
             };
@@ -669,6 +681,71 @@
                 return 1 - (ssr / sst);
             };
 
+             /**
+             * Performs circle regression using a least-squares method.
+             */
+            const circleRegression = (data) => {
+                if (data.length < 3) return null;
+                
+                let sumX = 0, sumY = 0, sumX2 = 0, sumY2 = 0, sumXY = 0;
+                let sumX3 = 0, sumY3 = 0, sumX2Y = 0, sumXY2 = 0;
+                const n = data.length;
+
+                for (const p of data) {
+                    const x = p.x;
+                    const y = p.y;
+                    const x2 = x * x;
+                    const y2 = y * y;
+                    sumX += x;
+                    sumY += y;
+                    sumX2 += x2;
+                    sumY2 += y2;
+                    sumXY += x * y;
+                    sumX3 += x * x2;
+                    sumY3 += y * y2;
+                    sumX2Y += x2 * y;
+                    sumXY2 += x * y2;
+                }
+
+                const A = n * sumX2 - sumX * sumX;
+                const B = n * sumXY - sumX * sumY;
+                const C = n * sumY2 - sumY * sumY;
+                const D = 0.5 * (n * sumXY2 - sumX * sumY2 + n * sumX3 - sumX * sumX2);
+                const E = 0.5 * (n * sumX2Y - sumY * sumX2 + n * sumY3 - sumY * sumY2);
+                
+                const det = A * C - B * B;
+                if (Math.abs(det) < 1e-10) return null;
+
+                const h = (D * C - B * E) / det;
+                const k = (A * E - B * D) / det;
+                
+                const rSquared = data.reduce((sum, p) => sum + Math.pow(p.x - h, 2) + Math.pow(p.y - k, 2), 0) / n;
+                const r = Math.sqrt(rSquared);
+                
+                return { h, k, r };
+            };
+
+            /**
+             * Calculates R-squared for a circle fit.
+             */
+            const calculateRSquaredCircle = (data, params) => {
+                if (!params) return -Infinity;
+                const { h, k, r } = params;
+                
+                const meanRadius = data.reduce((sum, p) => sum + Math.sqrt(Math.pow(p.x - h, 2) + Math.pow(p.y - k, 2)), 0) / data.length;
+                if (meanRadius < 1e-6) return -Infinity;
+
+                const radiusVariation = data.reduce((sum, p) => sum + Math.pow(Math.sqrt(Math.pow(p.x - h, 2) + Math.pow(p.y - k, 2)) - r, 2), 0);
+                
+                const xMean = data.reduce((sum, p) => sum + p.x, 0) / data.length;
+                const yMean = data.reduce((sum, p) => sum + p.y, 0) / data.length;
+                const totalVariation = data.reduce((sum, p) => sum + Math.pow(p.x - xMean, 2) + Math.pow(p.y - yMean, 2), 0);
+                
+                if (totalVariation === 0) return 1;
+
+                return 1 - (radiusVariation / totalVariation);
+            };
+
             /**
              * Formats the trigonometric parameters into a readable string.
              */
@@ -714,9 +791,20 @@
             };
 
             /**
+             * Formats the circle parameters into a readable string.
+             */
+            const formatCircle = (params) => {
+                if (!params) return null;
+                const { h, k, r } = params;
+                const xPart = h !== 0 ? `(x ${h > 0 ? '-' : '+'} ${Math.abs(h).toFixed(2)})^2` : 'x^2';
+                const yPart = k !== 0 ? `(y ${k > 0 ? '-' : '+'} ${Math.abs(k).toFixed(2)})^2` : 'y^2';
+                return `${xPart} + ${yPart} = ${r.toFixed(2)}^2`;
+            };
+
+            /**
              * Formats the polynomial coefficients into a readable and evaluatable string.
              */
-            const formatPolynomial = (coefficients) => {
+             const formatPolynomial = (coefficients) => {
                 if (!coefficients || coefficients.length === 0) return '0.00';
 
                 let parts = [];
@@ -724,43 +812,45 @@
                     const c = coefficients[i];
                     if (Math.abs(c) < 1e-6) continue;
 
-                    let term;
                     const absC = Math.abs(c);
+                    const sign = c > 0 ? '+' : '-';
                     const isCoeffOne = Math.abs(absC - 1) < 1e-6;
 
-                    let valuePart = '';
-                    if (isCoeffOne && i > 0) {
-                        valuePart = '';
-                    } else {
-                        valuePart = absC.toFixed(2);
-                    }
-
-                    if (i > 0) {
-                        if (valuePart !== '') valuePart += '*';
-                        valuePart += 'x';
-                        if (i > 1) valuePart += `^${i}`;
+                    let term = '';
+                    if (!isCoeffOne || i === 0) {
+                        term += absC.toFixed(2);
                     }
                     
-                    if (valuePart === '') valuePart = 'x' + (i > 1 ? `^${i}` : '');
-
-                    if (parts.length > 0) {
-                        term = (c > 0) ? ` + ${valuePart}` : ` - ${valuePart}`;
-                    } else {
-                        if (c < 0) {
-                             if (isCoeffOne && i > 0) {
-                                term = `(-1)*${valuePart}`;
-                             } else {
-                                term = `-${valuePart}`;
-                             }
-                        } else {
-                            term = valuePart;
-                        }
+                    if (i > 0) { // has x term
+                        if (term !== '') term += '*';
+                        term += 'x';
+                        if (i > 1) term += `^${i}`;
                     }
-                    parts.push(term);
+                    
+                    if (term !== '') {
+                       if (parts.length > 0) {
+                           parts.push(sign);
+                           parts.push(term);
+                       } else {
+                           if (sign === '-') {
+                               if (term.includes('^')) {
+                                   term = `(-1)*${term}`;
+                               } else {
+                                   term = `-${term}`;
+                               }
+                           }
+                           parts.push(term);
+                       }
+                    }
                 }
-
+                
                 if (parts.length === 0) return '0.00';
-                return parts.join('').trim();
+                
+                // Post-process for cleaner output like "+ -5" -> "- 5"
+                let result = parts.join(' ').replace(/\+ -/g, '-');
+                if (result.startsWith('+ ')) result = result.substring(2);
+
+                return result;
             };
 
             const analyzeGraph = () => {
@@ -782,8 +872,10 @@
                 
                 setTimeout(() => {
                     try {
+                        let fits = [];
+
                         // --- Polynomial Analysis ---
-                        let bestPolyFit = { degree: -1, rSquared: -Infinity, coefficients: null };
+                        let bestPolyFit = { rSquared: -Infinity, coefficients: null };
                         const maxDegree = Math.min(4, allPoints.length - 2);
                         for (let degree = 1; degree <= maxDegree; degree++) {
                             const coefficients = polynomialRegression(allPoints, degree);
@@ -791,81 +883,85 @@
                             const rSquared = calculateRSquared(allPoints, coefficients);
                             const adjustedRSquared = rSquared - (degree * 0.01);
                             if (adjustedRSquared > bestPolyFit.rSquared) {
-                                bestPolyFit = { degree, rSquared, coefficients };
+                                bestPolyFit = { rSquared, coefficients };
                             }
                         }
+                        if (bestPolyFit.coefficients) fits.push({ type: 'polynomial', ...bestPolyFit });
+                        
 
                         // --- Trigonometric Analysis ---
-                        let bestTrigFit = { rSquared: -Infinity, params: null };
                         const trigParams = trigonometricRegression(allPoints);
                         if (trigParams) {
-                            const trigRSquared = calculateRSquaredTrig(allPoints, trigParams);
-                            bestTrigFit = { rSquared: trigRSquared, params: trigParams };
+                            const rSquared = calculateRSquaredTrig(allPoints, trigParams);
+                            fits.push({ type: 'trigonometric', rSquared, params: trigParams });
                         }
                         
                         // --- Reciprocal Analysis ---
-                        let bestReciprocalFit = { rSquared: -Infinity, params: null };
-                        // Heuristic: Reciprocal functions often have multiple disconnected lines.
                         if (lines.length > 1) { 
                             const reciprocalParams = reciprocalRegression(allPoints);
                             if (reciprocalParams) {
-                                const reciprocalRSquared = calculateRSquaredReciprocal(allPoints, reciprocalParams);
-                                // Give a slight boost to reciprocal fit if multiple lines are drawn, as it's a strong indicator.
-                                bestReciprocalFit = { rSquared: reciprocalRSquared + 0.05, params: reciprocalParams }; 
+                                let rSquared = calculateRSquaredReciprocal(allPoints, reciprocalParams);
+                                rSquared += 0.05; // Boost for being a likely candidate
+                                fits.push({ type: 'reciprocal', rSquared, params: reciprocalParams });
                             }
                         }
 
+                        // --- Circle Analysis ---
+                        const firstLine = lines[0] || [];
+                        const startPoint = firstLine[0];
+                        const endPoint = firstLine[firstLine.length - 1];
+                        const isClosedLoop = lines.length === 1 && startPoint && endPoint && 
+                            Math.hypot(startPoint.x - endPoint.x, startPoint.y - endPoint.y) < (getRange().max - getRange().min) * 0.2;
+                        
+                        const circleParams = circleRegression(allPoints);
+                        if (circleParams) {
+                             let rSquared = calculateRSquaredCircle(allPoints, circleParams);
+                             if (isClosedLoop) rSquared += 0.1; // Boost if it looks like a closed loop
+                             fits.push({ type: 'circle', rSquared, params: circleParams });
+                        }
+
                         // --- Compare and Select Best Fit ---
+                        if (fits.length === 0) {
+                             throw new Error("No suitable function fit found.");
+                        }
+
+                        fits.sort((a, b) => b.rSquared - a.rSquared);
+                        const bestFit = fits[0];
+
+                        console.log("Analysis results:", fits.map(f => `${f.type}: ${f.rSquared.toFixed(4)}`).join(', '));
+                        console.log(`Selected fit: ${bestFit.type}`);
+
                         let formulaString;
-                        let bestFitType = 'none';
-                        let bestR2 = -Infinity;
+                        let finalAnalyzedFormula;
 
-                        if(bestPolyFit.rSquared > bestR2) {
-                            bestR2 = bestPolyFit.rSquared;
-                            bestFitType = 'polynomial';
-                        }
-                        if(bestTrigFit.rSquared > bestR2) {
-                            bestR2 = bestTrigFit.rSquared;
-                            bestFitType = 'trigonometric';
-                        }
-                        if(bestReciprocalFit.rSquared > bestR2) {
-                            bestR2 = bestReciprocalFit.rSquared;
-                            bestFitType = 'reciprocal';
-                        }
-
-                        console.log(`Poly R^2: ${bestPolyFit.rSquared.toFixed(4)}, Trig R^2: ${bestTrigFit.rSquared.toFixed(4)}, Reciprocal R^2: ${(bestReciprocalFit.rSquared - 0.05).toFixed(4)}`);
-                        console.log(`Selected fit: ${bestFitType}`);
-
-                        switch(bestFitType) {
+                        switch(bestFit.type) {
                             case 'polynomial':
-                                if (bestPolyFit.degree === -1 || !bestPolyFit.coefficients) {
-                                    throw new Error("Could not find a suitable polynomial fit.");
-                                }
-                                formulaString = formatPolynomial(bestPolyFit.coefficients);
+                                formulaString = formatPolynomial(bestFit.coefficients);
+                                finalAnalyzedFormula = { type: 'standard', formula: formulaString, params: bestFit.coefficients };
                                 break;
                             case 'trigonometric':
-                                if (!bestTrigFit.params) {
-                                    throw new Error("Could not find a suitable trigonometric fit.");
-                                }
-                                formulaString = formatTrigonometric(bestTrigFit.params);
+                                formulaString = formatTrigonometric(bestFit.params);
+                                finalAnalyzedFormula = { type: 'standard', formula: formulaString, params: bestFit.params };
                                 break;
                             case 'reciprocal':
-                                if (!bestReciprocalFit.params) {
-                                    throw new Error("Could not find a suitable reciprocal fit.");
-                                }
-                                formulaString = formatReciprocal(bestReciprocalFit.params);
+                                formulaString = formatReciprocal(bestFit.params);
+                                finalAnalyzedFormula = { type: 'standard', formula: formulaString, params: bestFit.params };
+                                break;
+                            case 'circle':
+                                formulaString = formatCircle(bestFit.params);
+                                finalAnalyzedFormula = { type: 'circle', formula: formulaString, params: bestFit.params };
                                 break;
                             default:
-                                throw new Error("No suitable function fit found.");
+                                throw new Error("Unknown best fit type.");
                         }
 
                         if (!formulaString) {
                             throw new Error("Could not format the resulting formula.");
                         }
 
-                        analyzedFormula = formulaString;
-                        functionInput.value = analyzedFormula;
-                        resultEl.innerHTML = `f(x) &approx; <strong>${analyzedFormula}</strong>`;
+                        analyzedFormula = finalAnalyzedFormula;
+                        functionInput.value = analyzedFormula.type === 'circle' ? '' : analyzedFormula.formula;
+                        resultEl.innerHTML = (analyzedFormula.type === 'circle' ? '' : 'f(x) &approx; ') + `<strong>${analyzedFormula.formula}</strong>`;
                         drawFuncBtn.disabled = false;
 
                     } catch (error) {
@@ -891,16 +987,23 @@
             analyzeBtn.addEventListener('click', analyzeGraph);
             
             drawFuncBtn.addEventListener('click', () => {
-                const formula = functionInput.value.trim();
-                if (!formula) return;
-                formulaToDraw = formula;
+                const formulaText = functionInput.value.trim();
+                if (formulaText) {
+                    formulaToDraw = { type: 'standard', formula: formulaText };
+                } else if (analyzedFormula) {
+                    formulaToDraw = analyzedFormula;
+                } else {
+                    return;
+                }
                 redrawScene();
             });
 
             functionInput.addEventListener('input', () => {
-                drawFuncBtn.disabled = functionInput.value.trim() === '';
-                if (formulaToDraw) {
-                    formulaToDraw = null;
+                const hasText = functionInput.value.trim() !== '';
+                drawFuncBtn.disabled = !hasText;
+                
+                if (formulaToDraw && formulaToDraw.type === 'standard' && formulaToDraw.formula !== functionInput.value.trim()) {
+                    formulaToDraw = null; 
                     redrawScene();
                 }
             });
