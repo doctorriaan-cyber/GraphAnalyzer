@@ -175,13 +175,6 @@
             font-size: 1rem;
         }
     </style>
-<script type="importmap">
-{
-  "imports": {
-    "@google/genai": "https://esm.sh/@google/genai@^1.15.0"
-  }
-}
-</script>
 </head>
 <body>
     <div class="container">
@@ -212,8 +205,6 @@
     </div>
 
     <script type="module">
-        import { GoogleGenAI } from "@google/genai";
-
         document.addEventListener('DOMContentLoaded', () => {
             // DOM Elements
             const canvas = document.getElementById('drawCanvas');
@@ -281,7 +272,7 @@
             // App State
             let isDrawing = false;
             let lines = []; // Array of arrays to hold disconnected lines
-            let analyzedFormula = null; // Stores formula from AI analysis
+            let analyzedFormula = null; // Stores formula from analysis
             let formulaToDraw = null; // Stores formula to be actively drawn
 
             // --- Coordinate Conversion ---
@@ -486,7 +477,140 @@
                 isDrawing = false;
             };
 
-            const analyzeGraph = async () => {
+            // --- In-Browser Analysis ---
+            
+            /**
+             * Solves a system of linear equations using Gaussian elimination.
+             * @param {number[][]} matrix - The augmented matrix [A|b].
+             * @returns {number[]|null} The solution vector or null if no unique solution.
+             */
+            const solveLinearSystem = (matrix) => {
+                const n = matrix.length;
+                for (let i = 0; i < n; i++) {
+                    let maxEl = Math.abs(matrix[i][i]);
+                    let maxRow = i;
+                    for (let k = i + 1; k < n; k++) {
+                        if (Math.abs(matrix[k][i]) > maxEl) {
+                            maxEl = Math.abs(matrix[k][i]);
+                            maxRow = k;
+                        }
+                    }
+                    for (let k = i; k < n + 1; k++) {
+                        let tmp = matrix[maxRow][k];
+                        matrix[maxRow][k] = matrix[i][k];
+                        matrix[i][k] = tmp;
+                    }
+                    for (let k = i + 1; k < n; k++) {
+                        let c = -matrix[k][i] / matrix[i][i];
+                        for (let j = i; j < n + 1; j++) {
+                            if (i === j) {
+                                matrix[k][j] = 0;
+                            } else {
+                                matrix[k][j] += c * matrix[i][j];
+                            }
+                        }
+                    }
+                }
+                const solution = new Array(n);
+                for (let i = n - 1; i > -1; i--) {
+                    solution[i] = matrix[i][n] / matrix[i][i];
+                    for (let k = i - 1; k > -1; k--) {
+                        matrix[k][n] -= matrix[k][i] * solution[i];
+                    }
+                }
+                return solution;
+            };
+            
+            /**
+             * Performs polynomial regression on a set of data points.
+             * @param { {x: number, y: number}[] } data - The array of data points.
+             * @param {number} degree - The degree of the polynomial to fit.
+             * @returns {number[]|null} The coefficients of the polynomial or null on failure.
+             */
+            const polynomialRegression = (data, degree) => {
+                const n = degree + 1;
+                const matrix = Array.from({ length: n }, () => new Array(n + 1).fill(0));
+                
+                for (let i = 0; i < n; i++) {
+                    for (let j = 0; j < n; j++) {
+                        matrix[i][j] = data.reduce((sum, p) => sum + Math.pow(p.x, i + j), 0);
+                    }
+                    matrix[i][n] = data.reduce((sum, p) => sum + p.y * Math.pow(p.x, i), 0);
+                }
+                
+                return solveLinearSystem(matrix);
+            };
+
+            /**
+             * Calculates the R-squared value for a given fit.
+             * @param { {x: number, y: number}[] } data - The original data points.
+             * @param {number[]} coefficients - The polynomial coefficients.
+             * @returns {number} The R-squared value.
+             */
+            const calculateRSquared = (data, coefficients) => {
+                const yMean = data.reduce((sum, p) => sum + p.y, 0) / data.length;
+                
+                const predict = (x) => coefficients.reduce((sum, c, i) => sum + c * Math.pow(x, i), 0);
+                
+                const ssr = data.reduce((sum, p) => sum + Math.pow(p.y - predict(p.x), 2), 0);
+                const sst = data.reduce((sum, p) => sum + Math.pow(p.y - yMean, 2), 0);
+                
+                return sst === 0 ? 1 : 1 - (ssr / sst);
+            };
+
+            /**
+             * Formats the polynomial coefficients into a readable string.
+             * @param {number[]} coefficients - The polynomial coefficients.
+             * @returns {string} The formatted formula string.
+             */
+            const formatPolynomial = (coefficients) => {
+                let parts = [];
+                // Iterate from highest degree down
+                for (let i = coefficients.length - 1; i >= 0; i--) {
+                    const c = coefficients[i];
+                    if (Math.abs(c) < 1e-4) continue; // Skip negligible terms
+
+                    let term = '';
+                    const absC = Math.abs(c);
+                    
+                    // 1. Sign
+                    if (parts.length > 0) { // If not the first term being added
+                        term += (c > 0) ? ' + ' : ' - ';
+                    } else { // First (highest-degree) term
+                        if (c < 0) {
+                            term += '-';
+                        }
+                    }
+
+                    // 2. Coefficient value
+                    let coefficientAdded = false;
+                    if (i > 0 && Math.abs(absC - 1) < 1e-4) {
+                        // For 'x' or 'x^n', coefficient is 1, so we don't print it.
+                    } else {
+                        term += absC.toFixed(2);
+                        coefficientAdded = true;
+                    }
+
+                    // 3. Variable part (x)
+                    if (i > 0) {
+                        if (coefficientAdded) {
+                            term += '*';
+                        }
+                        term += 'x';
+                        if (i > 1) {
+                            term += `^${i}`;
+                        }
+                    }
+                    
+                    parts.push(term);
+                }
+
+                if (parts.length === 0) return '0.00';
+                
+                return parts.join('').trim();
+            };
+
+            const analyzeGraph = () => {
                 const allPoints = lines.flat();
                 if (allPoints.length < 10) {
                     resultEl.innerHTML = `<span class="placeholder" style="color: #d9534f;">Please draw a more complete graph.</span>`;
@@ -501,53 +625,47 @@
                 formulaToDraw = null;
                 redrawScene(); 
 
-                const apiKey = process.env.API_KEY;
-                if (!apiKey) {
-                    resultEl.innerHTML = `<span class="placeholder" style="color: #d9534f;">API Key not configured.</span>`;
-                    console.error("API Key is missing. Please configure the process.env.API_KEY environment variable.");
-                    analyzeBtn.disabled = false;
-                    analyzeBtn.textContent = "Analyze";
-                    return;
-                }
+                resultEl.innerHTML = `<span class="placeholder">Calculating best fit...</span>`;
+                
+                // Use a timeout to allow the UI to update before the calculation starts.
+                setTimeout(() => {
+                    try {
+                        let bestFit = { degree: -1, rSquared: -Infinity, coefficients: null };
+                        const maxDegree = Math.min(4, allPoints.length - 2);
 
-                resultEl.innerHTML = `<span class="placeholder">AI is thinking...</span>`;
+                        for (let degree = 1; degree <= maxDegree; degree++) {
+                            const coefficients = polynomialRegression(allPoints, degree);
+                            if (!coefficients) continue;
 
-                try {
-                    const { min, max } = getRange();
-                    const pointsString = allPoints
-                        .map(p => `(${p.x.toFixed(2)}, ${p.y.toFixed(2)})`)
-                        .join(', ');
-                    
-                    const ai = new GoogleGenAI({ apiKey });
-                    
-                    const systemInstruction = `You are a mathematical expert specializing in curve fitting. Your task is to analyze (x, y) data points from a user's drawing and determine the most likely mathematical function f(x) that represents it. The function should be as simple as possible. Consider linear, quadratic, cubic, and simple trigonometric or exponential functions. Respond with ONLY the mathematical expression for the function. Do not include "f(x) =" or any explanations. For example, if the function is y = 2x + 1, your response should be just "2*x + 1".`;
-                    const userPrompt = `The user's drawing exists within the x and y range of [${min}, ${max}]. Here are the data points: ${pointsString}`;
+                            const rSquared = calculateRSquared(allPoints, coefficients);
+                            
+                            // Prefer simpler models that are still a good fit.
+                            const adjustedRSquared = rSquared - (degree * 0.01);
 
-                    const response = await ai.models.generateContent({
-                      model: 'gemini-2.5-flash',
-                      contents: userPrompt,
-                      config: {
-                          systemInstruction: systemInstruction,
-                      }
-                    });
+                            if (adjustedRSquared > bestFit.rSquared) {
+                                bestFit = { degree, rSquared, coefficients };
+                            }
+                        }
 
-                    const text = response.text;
-                    if (!text || !text.trim()) {
-                        throw new Error("Received an empty or whitespace-only response from the AI.");
+                        if (bestFit.degree === -1 || !bestFit.coefficients) {
+                            throw new Error("Could not find a suitable function fit.");
+                        }
+                        
+                        const formulaString = formatPolynomial(bestFit.coefficients);
+                        
+                        analyzedFormula = formulaString;
+                        functionInput.value = analyzedFormula;
+                        resultEl.innerHTML = `f(x) &approx; <strong>${analyzedFormula}</strong>`;
+                        drawFuncBtn.disabled = false;
+
+                    } catch (error) {
+                        console.error("Error analyzing graph:", error);
+                        resultEl.innerHTML = `<span class="placeholder" style="color: #d9534f;">Could not analyze graph. See console for details.</span>`;
+                    } finally {
+                        analyzeBtn.disabled = false;
+                        analyzeBtn.textContent = "Analyze";
                     }
-
-                    analyzedFormula = text.trim();
-                    functionInput.value = analyzedFormula;
-                    resultEl.innerHTML = `f(x) &approx; <strong>${analyzedFormula}</strong>`;
-                    drawFuncBtn.disabled = false;
-
-                } catch (error) {
-                    console.error("Error analyzing graph:", error);
-                    resultEl.innerHTML = `<span class="placeholder" style="color: #d9534f;">Could not analyze graph. See console for details.</span>`;
-                } finally {
-                    analyzeBtn.disabled = false;
-                    analyzeBtn.textContent = "Analyze";
-                }
+                }, 50); // 50ms timeout
             };
             
             // --- Event Listeners Setup ---
@@ -586,4 +704,3 @@
     </script>
 </body>
 </html>
-
